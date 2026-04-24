@@ -29,6 +29,7 @@ Implementado:
 - Layout com navegacao
 - Schema Prisma multiempresa e multiusuario
 - Preparacao para chunks vetoriais com pgvector
+- Base de previa para PDF tecnico e PDF explicativo para cliente
 - `.env.example`
 
 Ainda nao implementado:
@@ -37,6 +38,7 @@ Ainda nao implementado:
 - Autenticacao real
 - IA, embeddings ou chamadas OpenAI
 - Upload real de PDFs
+- Renderizacao real/download de PDF
 - Processamento de documentos
 - Migrations aplicadas em Supabase/PostgreSQL
 
@@ -128,6 +130,45 @@ por exemplo `ivfflat` ou `hnsw`.
 
 Leia `prisma/SETUP_SUPABASE.md` para configurar `DATABASE_URL`, `DIRECT_URL`,
 pooler da Supabase, Vercel e migrations com seguranca.
+
+## Geracao de PDF da resposta RAG
+
+A base da funcionalidade de PDF esta preparada em `src/features/rag-pdf`.
+Nesta etapa o projeto renderiza previas HTML/React, sem gerar arquivo PDF real e
+sem usar IA ou imagens.
+
+Rotas de previa:
+
+```bash
+/pdf-preview/technical
+/pdf-preview/client
+```
+
+Tambem existe uma rota server-side preparada:
+
+```bash
+POST /api/rag-pdf
+```
+
+Ela recebe `question`, `answer`, `kind` e `sources`, monta o payload
+estruturado e retorna status `preview-only`. A renderizacao real podera ser
+conectada depois com Playwright ou Puppeteer no servidor.
+
+Modulos principais:
+
+- `types.ts`: contratos `RagPdfKind`, `RagPdfSource`, `RagPdfSection`,
+  `RagPdfPayload` e `RagPdfGenerationResult`.
+- `classifier.ts`: sugestao simples por palavras-chave entre PDF tecnico e PDF
+  para cliente.
+- `build-payload.ts`: estrutura a resposta, fontes, secoes, checklist e
+  disclaimers.
+- `generate-pdf.ts`: abstracao para geracao futura.
+- `future-integration.ts`: stubs para `RagAnswer`, `RagAnswerSource`,
+  `DocumentChunk`, `AuditLog` e `PlanUsage`.
+
+Disclaimers obrigatorios sao exibidos em todos os templates. A interface deixa
+claro que os dados atuais sao demonstrativos enquanto o RAG real nao estiver
+conectado.
 
 ## Proximos passos sugeridos
 
