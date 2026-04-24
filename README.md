@@ -59,7 +59,9 @@ npm run prisma:generate
 npm run prisma:validate
 npm run prisma:format
 npm run prisma:migrate:dev
+npm run prisma:db:push
 npm run prisma:studio
+npm run prisma:check
 ```
 
 ## Modelagem de dados
@@ -123,6 +125,9 @@ create extension if not exists vector;
 
 Depois, crie indices vetoriais em migration SQL conforme a estrategia escolhida,
 por exemplo `ivfflat` ou `hnsw`.
+
+Leia `prisma/SETUP_SUPABASE.md` para configurar `DATABASE_URL`, `DIRECT_URL`,
+pooler da Supabase, Vercel e migrations com seguranca.
 
 ## Proximos passos sugeridos
 
