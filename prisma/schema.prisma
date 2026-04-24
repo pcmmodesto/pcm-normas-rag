@@ -1,0 +1,408 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+  VIEWER
+
+  @@map("user_role")
+}
+
+enum CompanyMemberRole {
+  OWNER
+  ADMIN
+  ENGINEER
+  ANALYST
+  VIEWER
+
+  @@map("company_member_role")
+}
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+
+  @@map("company_status")
+}
+
+enum SubscriptionPlan {
+  FREE
+  PRO
+  BUSINESS
+  ENTERPRISE
+
+  @@map("subscription_plan")
+}
+
+enum DocumentScope {
+  GLOBAL
+  COMPANY
+
+  @@map("document_scope")
+}
+
+enum TechnicalDocumentType {
+  TECHNICAL_STANDARD
+  CONNECTION_STANDARD
+  PROCEDURE
+  MANUAL
+  RESOLUTION
+  OTHER
+
+  @@map("technical_document_type")
+}
+
+enum DocumentStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+
+  @@map("document_status")
+}
+
+enum VersionStatus {
+  DRAFT
+  PROCESSING
+  READY
+  FAILED
+  ARCHIVED
+
+  @@map("version_status")
+}
+
+enum ProcessingStatus {
+  PENDING
+  EXTRACTING
+  CHUNKING
+  EMBEDDING
+  READY
+  FAILED
+
+  @@map("processing_status")
+}
+
+enum RagQuestionStatus {
+  RECEIVED
+  RETRIEVING
+  ANSWERING
+  ANSWERED
+  FAILED
+
+  @@map("rag_question_status")
+}
+
+enum RagAnswerStatus {
+  DRAFT
+  COMPLETED
+  FAILED
+
+  @@map("rag_answer_status")
+}
+
+enum AuditAction {
+  USER_LOGIN
+  DOCUMENT_CREATED
+  DOCUMENT_UPDATED
+  DOCUMENT_VERSION_CREATED
+  DOCUMENT_PROCESSED
+  RAG_QUESTION_CREATED
+  RAG_ANSWER_CREATED
+  PLAN_USAGE_RECORDED
+  SYSTEM_EVENT
+
+  @@map("audit_action")
+}
+
+enum UsageMetric {
+  RAG_QUESTION
+  DOCUMENT_UPLOAD
+  DOCUMENT_PAGE
+  DOCUMENT_CHUNK
+  STORAGE_MB
+  EMBEDDING_TOKEN
+  CHAT_TOKEN
+
+  @@map("usage_metric")
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String?
+  role           UserRole  @default(MEMBER)
+  avatarUrl      String?   @map("avatar_url")
+  externalAuthId String?   @unique @map("external_auth_id")
+  isActive       Boolean   @default(true) @map("is_active")
+  lastLoginAt    DateTime? @map("last_login_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  companyMemberships CompanyMember[]
+  uploadedVersions   DocumentVersion[] @relation("DocumentVersionUploader")
+  ragQuestions       RagQuestion[]
+  auditLogs          AuditLog[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model Company {
+  id             String           @id @default(cuid())
+  name           String
+  legalName      String?          @map("legal_name")
+  documentNumber String?          @unique @map("document_number")
+  slug           String           @unique
+  status         CompanyStatus    @default(ACTIVE)
+  plan           SubscriptionPlan @default(FREE)
+  stateCodes     String[]         @default([]) @map("state_codes")
+  metadata       Json             @default("{}")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  members            CompanyMember[]
+  technicalDocuments TechnicalDocument[]
+  ragQuestions       RagQuestion[]
+  auditLogs          AuditLog[]
+  planUsages         PlanUsage[]
+
+  @@index([slug])
+  @@index([status, plan])
+  @@map("companies")
+}
+
+model CompanyMember {
+  id        String            @id @default(cuid())
+  companyId String            @map("company_id")
+  userId    String            @map("user_id")
+  role      CompanyMemberRole @default(VIEWER)
+  title     String?
+  isActive  Boolean           @default(true) @map("is_active")
+  invitedAt DateTime?         @map("invited_at")
+  joinedAt  DateTime?         @map("joined_at")
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId])
+  @@index([userId])
+  @@index([companyId, role])
+  @@map("company_members")
+}
+
+model TechnicalDocument {
+  id             String                @id @default(cuid())
+  companyId      String?               @map("company_id")
+  scope          DocumentScope         @default(COMPANY)
+  title          String
+  slug           String
+  description    String?
+  concessionaire String?
+  stateCodes     String[]              @default([]) @map("state_codes")
+  documentType   TechnicalDocumentType @default(TECHNICAL_STANDARD) @map("document_type")
+  status         DocumentStatus        @default(DRAFT)
+  tags           String[]              @default([])
+  metadata       Json                  @default("{}")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  company   Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  versions  DocumentVersion[]
+  questions RagQuestion[]
+
+  @@unique([companyId, slug])
+  @@index([scope, status])
+  @@index([concessionaire])
+  @@index([documentType])
+  @@map("technical_documents")
+}
+
+model DocumentVersion {
+  id               String           @id @default(cuid())
+  documentId       String           @map("document_id")
+  uploadedByUserId String?          @map("uploaded_by_user_id")
+  versionLabel     String           @map("version_label")
+  sourceFileName   String?          @map("source_file_name")
+  storagePath      String?          @map("storage_path")
+  checksumSha256   String?          @map("checksum_sha256")
+  status           VersionStatus    @default(DRAFT)
+  processingStatus ProcessingStatus @default(PENDING) @map("processing_status")
+  pageCount        Int              @default(0) @map("page_count")
+  chunkCount       Int              @default(0) @map("chunk_count")
+  embeddingModel   String?          @map("embedding_model")
+  publishedAt      DateTime?        @map("published_at")
+  processedAt      DateTime?        @map("processed_at")
+  processingError  String?          @map("processing_error")
+  metadata         Json             @default("{}")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  document   TechnicalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  uploadedBy User?             @relation("DocumentVersionUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  pages      DocumentPage[]
+  chunks     DocumentChunk[]
+
+  @@unique([documentId, versionLabel])
+  @@index([status, processingStatus])
+  @@index([uploadedByUserId])
+  @@map("document_versions")
+}
+
+model DocumentPage {
+  id                String   @id @default(cuid())
+  documentVersionId String   @map("document_version_id")
+  pageNumber        Int      @map("page_number")
+  text              String?
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  documentVersion DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  chunks          DocumentChunk[]
+
+  @@unique([documentVersionId, pageNumber])
+  @@index([pageNumber])
+  @@map("document_pages")
+}
+
+model DocumentChunk {
+  id                String                       @id @default(cuid())
+  documentVersionId String                       @map("document_version_id")
+  documentPageId    String                       @map("document_page_id")
+  pageNumber        Int                          @map("page_number")
+  chunkIndex        Int                          @map("chunk_index")
+  text              String
+  tokenCount        Int?                         @map("token_count")
+  metadata          Json                         @default("{}")
+  embedding         Unsupported("vector(1536)")?
+  embeddingModel    String?                      @map("embedding_model")
+  embeddedAt        DateTime?                    @map("embedded_at")
+  createdAt         DateTime                     @default(now()) @map("created_at")
+  updatedAt         DateTime                     @updatedAt @map("updated_at")
+
+  documentVersion DocumentVersion   @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  documentPage    DocumentPage      @relation(fields: [documentPageId], references: [id], onDelete: Cascade)
+  answerSources   RagAnswerSource[]
+
+  @@unique([documentVersionId, chunkIndex])
+  @@index([documentVersionId, pageNumber])
+  @@index([documentPageId])
+  @@map("document_chunks")
+}
+
+model RagQuestion {
+  id                  String            @id @default(cuid())
+  companyId           String?           @map("company_id")
+  userId              String?           @map("user_id")
+  technicalDocumentId String?           @map("technical_document_id")
+  question            String
+  normalizedQuestion  String?           @map("normalized_question")
+  status              RagQuestionStatus @default(RECEIVED)
+  metadata            Json              @default("{}")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+
+  company           Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  technicalDocument TechnicalDocument? @relation(fields: [technicalDocumentId], references: [id], onDelete: SetNull)
+  answer            RagAnswer?
+
+  @@index([companyId, createdAt])
+  @@index([userId, createdAt])
+  @@index([technicalDocumentId])
+  @@index([status])
+  @@map("rag_questions")
+}
+
+model RagAnswer {
+  id               String          @id @default(cuid())
+  ragQuestionId    String          @unique @map("rag_question_id")
+  answer           String
+  status           RagAnswerStatus @default(COMPLETED)
+  modelName        String?         @map("model_name")
+  promptTokens     Int?            @map("prompt_tokens")
+  completionTokens Int?            @map("completion_tokens")
+  totalTokens      Int?            @map("total_tokens")
+  latencyMs        Int?            @map("latency_ms")
+  metadata         Json            @default("{}")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  question RagQuestion       @relation(fields: [ragQuestionId], references: [id], onDelete: Cascade)
+  sources  RagAnswerSource[]
+
+  @@index([status])
+  @@map("rag_answers")
+}
+
+model RagAnswerSource {
+  id              String   @id @default(cuid())
+  ragAnswerId     String   @map("rag_answer_id")
+  documentChunkId String?  @map("document_chunk_id")
+  pageNumber      Int      @map("page_number")
+  chunkIndex      Int      @map("chunk_index")
+  sourceTitle     String   @map("source_title")
+  excerpt         String
+  relevanceScore  Float?   @map("relevance_score")
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  answer RagAnswer      @relation(fields: [ragAnswerId], references: [id], onDelete: Cascade)
+  chunk  DocumentChunk? @relation(fields: [documentChunkId], references: [id], onDelete: SetNull)
+
+  @@index([ragAnswerId])
+  @@index([documentChunkId])
+  @@index([pageNumber])
+  @@map("rag_answer_sources")
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  companyId  String?     @map("company_id")
+  userId     String?     @map("user_id")
+  action     AuditAction
+  entityType String      @map("entity_type")
+  entityId   String?     @map("entity_id")
+  ipAddress  String?     @map("ip_address")
+  userAgent  String?     @map("user_agent")
+  metadata   Json        @default("{}")
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([userId, createdAt])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+model PlanUsage {
+  id          String           @id @default(cuid())
+  companyId   String           @map("company_id")
+  plan        SubscriptionPlan
+  metric      UsageMetric
+  quantity    Int              @default(0)
+  limit       Int?
+  periodStart DateTime         @map("period_start")
+  periodEnd   DateTime         @map("period_end")
+  metadata    Json             @default("{}")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, metric, periodStart, periodEnd])
+  @@index([companyId, plan])
+  @@index([metric])
+  @@map("plan_usages")
+}

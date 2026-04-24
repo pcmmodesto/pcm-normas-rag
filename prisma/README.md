@@ -1,11 +1,25 @@
 # Prisma e pgvector
 
-Diretório reservado para a camada de dados futura.
+Este diretorio contem a modelagem de dados planejada para PostgreSQL/Supabase.
 
-Nesta etapa o projeto não possui banco de dados, migrations ou schema Prisma ativo.
-Quando a persistência for implementada, este diretório deve concentrar:
+Nesta etapa nao ha conexao ativa com Supabase, migrations aplicadas ou pipeline
+de IA. O schema apenas prepara as entidades e relacionamentos que o RAG usara.
 
-- `schema.prisma` com modelos de usuários, normas, páginas, chunks e citações.
-- Migrations para PostgreSQL.
-- Extensão `pgvector` habilitada no banco.
-- Índices vetoriais para busca semântica.
+## pgvector
+
+O campo `DocumentChunk.embedding` esta modelado como:
+
+```prisma
+embedding Unsupported("vector(1536)")?
+```
+
+Isso permite gerar migrations para PostgreSQL com a extensao `pgvector`, mantendo
+o Prisma Client protegido enquanto a camada de busca vetorial ainda nao existe.
+Quando o banco for conectado, sera necessario habilitar a extensao no Supabase:
+
+```sql
+create extension if not exists vector;
+```
+
+Tambem sera recomendado criar indice vetorial manualmente em migration SQL,
+por exemplo com `ivfflat` ou `hnsw`, conforme o volume de chunks.
