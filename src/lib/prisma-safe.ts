@@ -5,7 +5,11 @@ export async function safePrisma<T>(
   try {
     return await operation();
   } catch (error) {
-    if (isMissingTableError(error)) {
+    if (isKnownPrismaRuntimeError(error)) {
+      console.error("[safePrisma] Falling back after Prisma runtime error.", {
+        code: (error as { code?: string }).code,
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
       return fallback;
     }
 
@@ -13,12 +17,13 @@ export async function safePrisma<T>(
   }
 }
 
-function isMissingTableError(error: unknown) {
+function isKnownPrismaRuntimeError(error: unknown) {
   return (
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    ((error as { code?: string }).code === "P2021" ||
-      (error as { code?: string }).code === "P2022")
+    typeof (error as { code?: unknown }).code === "string" &&
+    ((error as { code: string }).code.startsWith("P") ||
+      (error as { code: string }).code === "DRIVER_ADAPTER_ERROR")
   );
 }

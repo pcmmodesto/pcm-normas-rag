@@ -72,36 +72,52 @@ export async function syncUserFromSupabase(
       ? supabaseUser.user_metadata.name
       : null;
 
-  const user = await prisma.user.upsert({
-    where: { email },
-    update: {
-      externalAuthId: supabaseUser.id,
-      role,
-      name,
-      isActive: true,
-      lastLoginAt: new Date(),
-    },
-    create: {
-      email,
-      externalAuthId: supabaseUser.id,
-      role,
-      name,
-      isActive: true,
-      lastLoginAt: new Date(),
-    },
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      role: true,
-    },
-  });
+  try {
+    const user = await prisma.user.upsert({
+      where: { email },
+      update: {
+        externalAuthId: supabaseUser.id,
+        role,
+        name,
+        isActive: true,
+        lastLoginAt: new Date(),
+      },
+      create: {
+        email,
+        externalAuthId: supabaseUser.id,
+        role,
+        name,
+        isActive: true,
+        lastLoginAt: new Date(),
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+      },
+    });
 
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    role: user.role === "ADMIN" ? "ADMIN" : "CUSTOMER",
-    supabaseUser,
-  };
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role === "ADMIN" ? "ADMIN" : "CUSTOMER",
+      supabaseUser,
+    };
+  } catch (error) {
+    console.error("[auth] User sync failed; continuing with Supabase session.", {
+      email,
+      errorName: error instanceof Error ? error.name : typeof error,
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+
+    return {
+      id: supabaseUser.id,
+      email,
+      name,
+      role: isAdmin ? "ADMIN" : "CUSTOMER",
+      supabaseUser,
+    };
+  }
 }
