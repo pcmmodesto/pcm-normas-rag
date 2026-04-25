@@ -1,9 +1,7 @@
 import { PdfChecklist } from "./pdf-checklist";
-import { PdfCover } from "./pdf-cover";
-import { PdfDisclaimer } from "./pdf-disclaimer";
-import { PdfMetadataBlock } from "./pdf-metadata-block";
 import { PdfSection } from "./pdf-section";
 import { PdfSourceList } from "./pdf-source-list";
+import { PdfTemplateFrame } from "./pdf-template-frame";
 import type { RagPdfPayload } from "../lib/types";
 
 type TechnicalPdfTemplateProps = {
@@ -19,20 +17,23 @@ export function TechnicalPdfTemplate({ payload }: TechnicalPdfTemplateProps) {
   );
 
   return (
-    <article className="overflow-hidden rounded border border-[#d8dde6] bg-[#f6f7f9] shadow-sm">
-      <PdfCover payload={payload} />
-      <div className="space-y-6 p-6 md:p-8">
-        <PdfMetadataBlock payload={payload} />
-        {regularSections.map((section) => (
-          <PdfSection key={section.title} section={section} />
-        ))}
-        {checklist?.items ? (
-          <PdfChecklist title={checklist.title} items={checklist.items} />
-        ) : null}
-        <PdfSourceList sources={payload.sources} />
-        <PdfDisclaimer disclaimer={payload.disclaimer} />
-      </div>
-    </article>
+    <PdfTemplateFrame payload={payload}>
+      <section className="rounded border border-[#bfd0e6] bg-[#eef5ff] p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[#123c69]">
+          Leitura tecnica
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-[#28384f]">
+          Este template prioriza rastreabilidade normativa, criterios de
+          verificacao e decisao tecnica documentavel.
+        </p>
+      </section>
+      {regularSections.map((section) => (
+        <PdfSection key={section.title} section={section} />
+      ))}
+      <PdfSourceList sources={payload.sources} />
+      {checklist?.items ? (
+        <PdfChecklist title={checklist.title} items={checklist.items} />
+      ) : null}
+    </PdfTemplateFrame>
   );
 }
-

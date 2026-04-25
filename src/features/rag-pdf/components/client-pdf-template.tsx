@@ -1,9 +1,7 @@
 import { PdfChecklist } from "./pdf-checklist";
-import { PdfCover } from "./pdf-cover";
-import { PdfDisclaimer } from "./pdf-disclaimer";
-import { PdfMetadataBlock } from "./pdf-metadata-block";
 import { PdfSection } from "./pdf-section";
 import { PdfSourceList } from "./pdf-source-list";
+import { PdfTemplateFrame } from "./pdf-template-frame";
 import type { RagPdfPayload } from "../lib/types";
 
 type ClientPdfTemplateProps = {
@@ -19,20 +17,23 @@ export function ClientPdfTemplate({ payload }: ClientPdfTemplateProps) {
   );
 
   return (
-    <article className="overflow-hidden rounded border border-[#d8dde6] bg-[#f6f7f9] shadow-sm">
-      <PdfCover payload={payload} />
-      <div className="space-y-6 p-6 md:p-8">
-        <PdfMetadataBlock payload={payload} />
-        {regularSections.map((section) => (
-          <PdfSection key={section.title} section={section} />
-        ))}
-        {checklist?.items ? (
-          <PdfChecklist title={checklist.title} items={checklist.items} />
-        ) : null}
-        <PdfSourceList sources={payload.sources} />
-        <PdfDisclaimer disclaimer={payload.disclaimer} />
-      </div>
-    </article>
+    <PdfTemplateFrame payload={payload}>
+      <section className="rounded border border-[#cfe3d5] bg-[#f0fbf3] p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-[#28633a]">
+          Leitura para atendimento
+        </h2>
+        <p className="mt-3 text-sm leading-6 text-[#2f4d38]">
+          Este template prioriza linguagem simples, proximos passos e cuidados
+          para orientar o solicitante sem transformar a resposta em projeto.
+        </p>
+      </section>
+      {regularSections.map((section) => (
+        <PdfSection key={section.title} section={section} />
+      ))}
+      {checklist?.items ? (
+        <PdfChecklist title={checklist.title} items={checklist.items} />
+      ) : null}
+      <PdfSourceList sources={payload.sources} />
+    </PdfTemplateFrame>
   );
 }
-

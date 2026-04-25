@@ -1,5 +1,7 @@
 import type { RagPdfKind } from "./types";
 
+export type RagPdfKindClassifier = (question: string) => RagPdfKind;
+
 const technicalTerms = [
   "awg",
   "cabo",
@@ -38,7 +40,7 @@ const clientTerms = [
   "aumento de carga",
 ];
 
-export function suggestRagPdfKind(question: string): RagPdfKind {
+export const keywordRagPdfKindClassifier: RagPdfKindClassifier = (question) => {
   const normalized = question.toLowerCase();
 
   const technicalScore = technicalTerms.filter((term) =>
@@ -49,5 +51,11 @@ export function suggestRagPdfKind(question: string): RagPdfKind {
   ).length;
 
   return technicalScore >= clientScore ? "technical" : "client";
-}
+};
 
+export function suggestRagPdfKind(
+  question: string,
+  classifier: RagPdfKindClassifier = keywordRagPdfKindClassifier,
+): RagPdfKind {
+  return classifier(question);
+}
