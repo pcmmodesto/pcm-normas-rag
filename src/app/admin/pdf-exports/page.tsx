@@ -1,8 +1,9 @@
 import { AdminShell } from "@/components/layout/app-shell";
-import { AdminTable } from "@/components/ui/admin-table";
 import { DashboardSection } from "@/components/ui/dashboard-section";
+import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
-import { pdfExportRows } from "@/features/dashboard/mock-data";
+
+export const dynamic = "force-dynamic";
 
 export default function AdminPdfExportsPage() {
   return (
@@ -11,14 +12,12 @@ export default function AdminPdfExportsPage() {
         <PageHeader
           eyebrow="Exportacoes PDF"
           title="Relatorios gerados"
-          description="Lista preparada para tipos de PDF, pergunta, status, plano usado e custo estimado futuro."
+          description="Modulo preparado para exportacoes reais de PDF tecnico e PDF para cliente."
         />
         <DashboardSection title="Exportacoes recentes">
-          <AdminTable
-            headers={["Data", "Usuario", "Tipo", "Pergunta", "Documento", "Status", "Plano", "Custo", "Acao"]}
-            rows={pdfExportRows}
-            statusColumn={5}
-            tone="light"
+          <EmptyState
+            title="Modulo de PDFs em preparacao"
+            description="Ainda nao ha tabela real de exportacoes de PDF. Quando a geracao for conectada, os registros aparecerao aqui."
           />
         </DashboardSection>
       </div>
