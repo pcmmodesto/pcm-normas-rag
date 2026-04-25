@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import {
   BRAZILIAN_STATES,
@@ -59,6 +60,28 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const requestId = randomUUID();
   logUploadStage(requestId, "request_start", "Upload request started.");
+
+  const currentUser = await getCurrentUser();
+
+  if (!currentUser) {
+    logUploadStage(requestId, "request_start", "Upload blocked: unauthenticated.");
+    return uploadErrorResponse(
+      "request_start",
+      "Voce precisa estar autenticado para enviar normas.",
+      401,
+    );
+  }
+
+  if (currentUser.role !== "ADMIN") {
+    logUploadStage(requestId, "request_start", "Upload blocked: non-admin user.", {
+      userId: currentUser.id,
+    });
+    return uploadErrorResponse(
+      "request_start",
+      "Apenas administradores podem enviar normas.",
+      403,
+    );
+  }
 
   let formData: FormData;
 

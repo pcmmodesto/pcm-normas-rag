@@ -99,7 +99,6 @@ Arquitetura de produto:
 Rotas publicas:
 
 - `/`: home institucional com proposta de valor e beneficios.
-- `/chat`: entrada publica para consulta basica e CTA para login.
 - `/pricing`: planos gratuito, avulso, mensal e anual.
 - `/help`: central de ajuda e limites da IA.
 - `/login`: tela visual de login, criar conta, recuperar senha e Google futuro.
@@ -133,6 +132,58 @@ O aviso institucional permanece obrigatorio em toda a aplicacao:
 
 > Ferramenta independente. Nao e oficial, afiliada ou endossada pela Equatorial
 > ou por concessionarias de energia.
+
+## Autenticacao e controle de acesso
+
+O sistema usa Supabase Auth para login com e-mail e senha. A sessao e lida no
+servidor antes de renderizar areas protegidas.
+
+Papeis:
+
+- `ADMIN`: equipe PCM, unica autorizada a enviar normas e gerenciar a base.
+- `MEMBER`: cliente/usuario final, autorizado a consultar chat, historico, uso
+  e PDFs.
+
+O cliente final nao envia documentos, nao ve upload, nao gerencia normas e nao
+acessa documentos brutos da base normativa. A base de conhecimento e criada e
+mantida pela PCM/admin.
+
+Para definir administradores iniciais, configure no ambiente:
+
+```bash
+ADMIN_EMAILS="pcm.modestoengenharia@gmail.com"
+```
+
+Pode haver mais de um e-mail, separados por virgula. Quando um usuario logado
+tem e-mail presente em `ADMIN_EMAILS`, ele e sincronizado no banco como
+`User.role = ADMIN`. Demais usuarios sao sincronizados como `MEMBER`.
+
+Protecao de rotas:
+
+- Visitante publico acessa `/`, `/pricing`, `/help` e `/login`.
+- `/dashboard/*` exige login.
+- `/admin/*` exige login e papel `ADMIN`.
+- Cliente tentando acessar `/admin/*` e redirecionado para `/dashboard`.
+- Visitante tentando acessar area protegida e redirecionado para `/login`.
+- `POST /api/documents/upload` valida sessao e papel `ADMIN`; caso contrario
+  retorna `401` ou `403`.
+
+Como testar local:
+
+1. Configure Supabase Auth no projeto.
+2. Configure `.env` com as variaveis Supabase, banco e `ADMIN_EMAILS`.
+3. Rode `npm run dev`.
+4. Crie/login com um e-mail que nao esta em `ADMIN_EMAILS`: deve ir para
+   `/dashboard` e nao acessar `/admin`.
+5. Crie/login com um e-mail em `ADMIN_EMAILS`: deve ir para `/admin` e acessar
+   `/admin/upload`.
+
+Como testar na Vercel:
+
+1. Configure as mesmas variaveis em Project Settings > Environment Variables.
+2. Inclua `ADMIN_EMAILS`.
+3. Faca novo deploy.
+4. Teste login de cliente e admin no dominio de producao.
 
 ## Como rodar
 

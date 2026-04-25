@@ -5,7 +5,7 @@ import { FreeChatWidget } from "@/features/dashboard/components/free-chat-widget
 import { pricingPlans } from "@/features/dashboard/mock-data";
 
 const steps = [
-  ["1", "Envie ou selecione documentos oficiais", "Normas, notas tecnicas, EPDs, EPEs, manuais e especificacoes."],
+  ["1", "A PCM organiza a base normativa", "Normas, notas tecnicas, EPDs, EPEs, manuais e especificacoes sao mantidos pelo admin."],
   ["2", "Pergunte em linguagem natural", "O sistema classifica se a consulta e basica, tecnica ou precisa de contexto."],
   ["3", "Receba resposta rastreavel", "A resposta futura deve citar fonte, pagina, item, tabela e trecho usado."],
 ];

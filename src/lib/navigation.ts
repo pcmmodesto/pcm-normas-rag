@@ -27,7 +27,6 @@ export const dashboardNavigation = [
   { href: "/dashboard/usage", label: "Uso" },
   { href: "/dashboard/pdfs", label: "PDFs" },
   { href: "/dashboard/settings", label: "Configuracoes" },
-  { href: "/", label: "Sair" },
 ];
 
 export const mainNavigation = publicNavigation;
