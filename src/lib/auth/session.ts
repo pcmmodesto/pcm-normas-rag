@@ -109,7 +109,6 @@ export async function syncUserFromSupabase(
     console.error("[auth] User sync failed; continuing with Supabase session.", {
       email,
       errorName: error instanceof Error ? error.name : typeof error,
-      message: error instanceof Error ? error.message : "Unknown error",
     });
 
     return {
