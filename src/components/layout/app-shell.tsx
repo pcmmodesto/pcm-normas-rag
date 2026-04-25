@@ -49,7 +49,7 @@ export function AppShell({ children }: AppShellProps) {
       <footer className="border-t border-[#d8dde6] bg-white">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-6 text-sm text-[#657187] md:flex-row md:items-center md:justify-between">
           <p>{productDisclaimer}</p>
-          <p>Base estrutural sem banco, IA ou upload real nesta etapa.</p>
+          <p>Upload de normas ativo; IA e processamento em etapas futuras.</p>
         </div>
       </footer>
     </div>

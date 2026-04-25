@@ -24,7 +24,7 @@ Implementado:
 - Pagina inicial profissional
 - Pagina de login visual
 - Painel administrativo visual
-- Pagina de upload de normas visual
+- Upload real de PDFs para Supabase Storage privado
 - Pagina de chat tecnico visual
 - Layout com navegacao
 - Schema Prisma multiempresa e multiusuario
@@ -34,13 +34,10 @@ Implementado:
 
 Ainda nao implementado:
 
-- Banco de dados conectado
 - Autenticacao real
 - IA, embeddings ou chamadas OpenAI
-- Upload real de PDFs
 - Renderizacao real/download de PDF
-- Processamento de documentos
-- Migrations aplicadas em Supabase/PostgreSQL
+- Processamento de documentos, extracao de texto, chunks e embeddings
 
 ## Como rodar
 
@@ -49,6 +46,36 @@ npm run dev
 ```
 
 Acesse `http://localhost:3000`.
+
+## Upload de PDFs
+
+A tela `/admin/upload` envia PDFs reais para o bucket privado
+`technical-documents` no Supabase Storage e cria registros iniciais no banco:
+
+- `TechnicalDocument` com `scope = GLOBAL` e `status = DRAFT`;
+- `DocumentVersion` com `status = DRAFT` e `processingStatus = PENDING`;
+- metadados de bucket, nome original, MIME type e tamanho em bytes no JSON da
+  versao.
+
+Nesta etapa ainda nao ha autenticacao real. Por isso, uploads sao registrados
+como documentos globais temporarios, sem `companyId` e sem usuario de upload.
+Esse fluxo deve ser substituido por validacao de sessao e empresa antes de uso
+multiempresa real.
+
+Para testar:
+
+1. Garanta que o bucket privado `technical-documents` exista no Supabase
+   Storage.
+2. Configure `.env` com `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+   `SUPABASE_DOCUMENTS_BUCKET`, `DATABASE_URL` e `DIRECT_URL`.
+3. Rode `npm run dev` e acesse `http://localhost:3000/admin/upload`.
+4. Preencha titulo, concessionaria, estado, tipo, versao e selecione um PDF de
+   ate 50 MB.
+5. Confirme o sucesso pela mensagem com ID do documento e, se necessario, pelo
+   Supabase Storage/Prisma Studio.
+
+O bucket permanece privado: a aplicacao nao gera URL publica e nao exibe
+`storagePath` para o usuario comum.
 
 ## Scripts
 
