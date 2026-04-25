@@ -46,10 +46,17 @@ export default async function AdminPage() {
       prisma.technicalDocument.findMany({
         orderBy: { createdAt: "desc" },
         take: 5,
-        include: {
+        select: {
+          id: true,
+          title: true,
+          concessionaire: true,
+          stateCodes: true,
           versions: {
             orderBy: { createdAt: "desc" },
             take: 1,
+            select: {
+              versionLabel: true,
+            },
           },
         },
       }),

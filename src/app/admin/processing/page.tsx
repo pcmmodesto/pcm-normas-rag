@@ -14,8 +14,18 @@ export default async function AdminProcessingPage() {
       prisma.documentVersion.findMany({
         orderBy: { createdAt: "desc" },
         take: 50,
-        include: {
-          document: true,
+        select: {
+          versionLabel: true,
+          status: true,
+          processingStatus: true,
+          pageCount: true,
+          chunkCount: true,
+          processingError: true,
+          document: {
+            select: {
+              title: true,
+            },
+          },
         },
       }),
     [],

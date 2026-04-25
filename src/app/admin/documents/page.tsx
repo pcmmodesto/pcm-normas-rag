@@ -14,10 +14,24 @@ export default async function AdminDocumentsPage() {
     () =>
       prisma.technicalDocument.findMany({
         orderBy: { createdAt: "desc" },
-        include: {
+        select: {
+          id: true,
+          title: true,
+          concessionaire: true,
+          stateCodes: true,
+          documentType: true,
+          status: true,
+          createdAt: true,
           versions: {
             orderBy: { createdAt: "desc" },
             take: 1,
+            select: {
+              versionLabel: true,
+              createdAt: true,
+              pageCount: true,
+              chunkCount: true,
+              processingStatus: true,
+            },
           },
         },
       }),
@@ -31,7 +45,7 @@ export default async function AdminDocumentsPage() {
       document.title,
       document.concessionaire ?? "-",
       document.stateCodes.join(", ") || "-",
-      document.categories.join(", ") || String(document.documentType),
+      String(document.documentType),
       currentVersion?.versionLabel ?? "-",
       String(document.status),
       formatDate(currentVersion?.createdAt ?? document.createdAt),

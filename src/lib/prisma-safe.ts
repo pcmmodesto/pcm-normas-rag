@@ -18,6 +18,7 @@ function isMissingTableError(error: unknown) {
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    (error as { code?: string }).code === "P2021"
+    ((error as { code?: string }).code === "P2021" ||
+      (error as { code?: string }).code === "P2022")
   );
 }

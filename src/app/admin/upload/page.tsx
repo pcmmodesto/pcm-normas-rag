@@ -15,10 +15,19 @@ export default async function UploadPage() {
       prisma.technicalDocument.findMany({
         orderBy: { createdAt: "desc" },
         take: 5,
-        include: {
+        select: {
+          id: true,
+          title: true,
+          stateCodes: true,
+          status: true,
+          createdAt: true,
           versions: {
             orderBy: { createdAt: "desc" },
             take: 1,
+            select: {
+              createdAt: true,
+              processingStatus: true,
+            },
           },
         },
       }),
