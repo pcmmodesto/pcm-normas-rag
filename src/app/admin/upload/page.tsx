@@ -1,49 +1,30 @@
 import { AdminShell } from "@/components/layout/app-shell";
 import { AdminTable } from "@/components/ui/admin-table";
+import { AdminWarning } from "@/components/ui/admin-warning";
 import { DashboardSection } from "@/components/ui/dashboard-section";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { adminQuery } from "@/features/admin/lib/admin-database";
+import { getAdminDocuments } from "@/features/admin/lib/admin-documents";
 import { DocumentUploadForm } from "@/features/documents/components/document-upload-form";
-import { prisma } from "@/lib/prisma";
-import { safePrisma } from "@/lib/prisma-safe";
+import { getRuntimeEnvDiagnostics } from "@/lib/server-diagnostics";
 
 export const dynamic = "force-dynamic";
 
 export default async function UploadPage() {
-  const recentDocuments = await safePrisma(
-    () =>
-      prisma.technicalDocument.findMany({
-        orderBy: { createdAt: "desc" },
-        take: 5,
-        select: {
-          id: true,
-          title: true,
-          stateCodes: true,
-          status: true,
-          createdAt: true,
-          versions: {
-            orderBy: { createdAt: "desc" },
-            take: 1,
-            select: {
-              createdAt: true,
-              processingStatus: true,
-            },
-          },
-        },
-      }),
+  const diagnostics = getRuntimeEnvDiagnostics();
+  const recentDocuments = await adminQuery(
+    "admin upload recent documents",
+    () => getAdminDocuments(5),
     [],
   );
 
-  const rows = recentDocuments.map((document) => {
-    const version = document.versions[0];
-
-    return [
-      document.title,
-      document.stateCodes.join(", ") || "-",
-      version?.processingStatus ? String(version.processingStatus) : String(document.status),
-      formatDate(version?.createdAt ?? document.createdAt),
-    ];
-  });
+  const rows = recentDocuments.data.map((document) => [
+    document.title,
+    document.stateCodes.join(", ") || "-",
+    document.processingStatus ? String(document.processingStatus) : String(document.status),
+    formatDate(document.versionCreatedAt ?? document.createdAt),
+  ]);
 
   return (
     <AdminShell>
@@ -52,6 +33,21 @@ export default async function UploadPage() {
           eyebrow="Upload real"
           title="Upload de normas tecnicas"
           description="Envie PDFs para o bucket privado do Supabase Storage e registre metadados iniciais. Somente admin pode gerenciar a base normativa."
+        />
+        <AdminWarning
+          title="Diagnostico seguro de configuracao"
+          details={[
+            `DATABASE_URL: ${diagnostics.variables.DATABASE_URL}`,
+            `SUPABASE_URL: ${diagnostics.variables.SUPABASE_URL}`,
+            `SUPABASE_SERVICE_ROLE_KEY: ${diagnostics.variables.SUPABASE_SERVICE_ROLE_KEY}`,
+            `SUPABASE_DOCUMENTS_BUCKET: ${diagnostics.variables.SUPABASE_DOCUMENTS_BUCKET}`,
+            diagnostics.sameProjectHint === false
+              ? "DATABASE_URL e SUPABASE_URL parecem apontar para projetos diferentes."
+              : "",
+            recentDocuments.ok
+              ? ""
+              : `Consulta de documentos falhou: ${recentDocuments.errorName} (${recentDocuments.errorCode}).`,
+          ].filter(Boolean)}
         />
         <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
           <DocumentUploadForm />

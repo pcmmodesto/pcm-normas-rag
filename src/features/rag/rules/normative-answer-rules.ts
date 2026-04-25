@@ -7,6 +7,8 @@ export const normativeAnswerRules = [
   "Perguntar contexto faltante quando necessario.",
   "Nao definir cabo, estrutura ou material apenas por calculo eletrico isolado.",
   "Cruzar calculos com tabela normativa, abaco ou regra tecnica estruturada quando disponivel.",
+  "Nunca responder criterio tecnico normativo sem fonte rastreavel da base documental.",
+  "Perguntas tecnicas avancadas exigem login e consulta paga, assinatura ativa ou acesso admin.",
 ] as const;
 
 export const requiredTechnicalContext = [

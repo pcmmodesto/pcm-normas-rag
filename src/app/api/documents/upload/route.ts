@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
+import { logRuntimeEnvDiagnostics } from "@/lib/server-diagnostics";
 import {
   BRAZILIAN_STATES,
   DEFAULT_DOCUMENTS_BUCKET,
@@ -53,13 +54,20 @@ type UploadStage =
   | "storage_upload"
   | "technical_document_create"
   | "document_version_create"
-  | "storage_cleanup";
+  | "storage_cleanup"
+  | "audit_log_create";
 
 export const runtime = "nodejs";
+
+type TransactionClient = {
+  $queryRaw<T = unknown>(query: TemplateStringsArray, ...values: unknown[]): Promise<T>;
+  $executeRaw(query: TemplateStringsArray, ...values: unknown[]): Promise<number>;
+};
 
 export async function POST(request: Request) {
   const requestId = randomUUID();
   logUploadStage(requestId, "request_start", "Upload request started.");
+  logRuntimeEnvDiagnostics("documents-upload");
 
   const currentUser = await getCurrentUser();
 
@@ -217,26 +225,24 @@ export async function POST(request: Request) {
           state: data.state,
         },
       );
-      const document = await tx.technicalDocument.create({
-        data: {
-          scope: DOCUMENT_SCOPE_GLOBAL,
-          title: data.title,
-          slug: `${documentSlug}-${randomUUID().slice(0, 8)}`,
-          description: data.description,
-          concessionaire: data.concessionaire,
-          stateCodes: [data.state],
-          documentType: data.documentType,
-          status: DOCUMENT_STATUS_DRAFT,
-          tags: data.tags,
-          metadata: {
-            uploadStage: "uploaded",
-            temporaryGlobalDocument: true,
-            publicationDate: data.publishedAt?.toISOString() ?? null,
-          },
-        },
-        select: {
-          id: true,
-          title: true,
+      const documentId = randomUUID();
+      const versionId = randomUUID();
+      const document = await createTechnicalDocumentRaw(tx, {
+        id: documentId,
+        scope: DOCUMENT_SCOPE_GLOBAL,
+        title: data.title,
+        slug: `${documentSlug}-${randomUUID().slice(0, 8)}`,
+        description: data.description,
+        concessionaire: data.concessionaire,
+        stateCodes: [data.state],
+        documentType: data.documentType,
+        status: DOCUMENT_STATUS_DRAFT,
+        tags: data.tags,
+        metadata: {
+          uploadStage: "uploaded",
+          temporaryGlobalDocument: true,
+          publicationDate: data.publishedAt?.toISOString() ?? null,
+          currentVersionLabel: data.versionLabel,
         },
       });
       logUploadStage(
@@ -258,26 +264,23 @@ export async function POST(request: Request) {
           bucket,
         },
       );
-      const version = await tx.documentVersion.create({
-        data: {
-          documentId: document.id,
-          versionLabel: data.versionLabel,
-          sourceFileName: data.file.name,
-          storagePath,
-          status: VERSION_STATUS_DRAFT,
-          processingStatus: PROCESSING_STATUS_PENDING,
-          publishedAt: data.publishedAt,
-          metadata: {
-            storageBucket: bucket,
-            storagePath,
-            originalFileName: data.file.name,
-            mimeType: data.file.type || "application/pdf",
-            fileSizeBytes: data.file.size,
-            uploadedBy: "temporary-global-upload",
-          },
-        },
-        select: {
-          id: true,
+      await createDocumentVersionRaw(tx, {
+        id: versionId,
+        documentId: document.id,
+        uploadedByUserId: currentUser.id,
+        versionLabel: data.versionLabel,
+        sourceFileName: data.file.name,
+        storagePath,
+        status: VERSION_STATUS_DRAFT,
+        processingStatus: PROCESSING_STATUS_PENDING,
+        publishedAt: data.publishedAt,
+        metadata: {
+          storageBucket: bucket,
+          originalFileName: data.file.name,
+          mimeType: data.file.type || "application/pdf",
+          fileSizeBytes: data.file.size,
+          uploadedByUserId: currentUser.id,
+          uploadRequestId: requestId,
         },
       });
       logUploadStage(
@@ -286,13 +289,24 @@ export async function POST(request: Request) {
         "DocumentVersion created.",
         {
           documentId: document.id,
-          versionId: version.id,
+          versionId,
         },
       );
 
+      databaseStage = "audit_log_create";
+      await createAuditLogRaw(tx, {
+        userId: currentUser.id,
+        entityId: document.id,
+        metadata: {
+          requestId,
+          versionId,
+          action: "document_upload",
+        },
+      });
+
       return {
         document,
-        version,
+        version: { id: versionId },
       };
     });
 
@@ -397,6 +411,144 @@ function validateUploadForm(formData: FormData): ValidationResult {
       file,
     },
   };
+}
+
+async function createTechnicalDocumentRaw(
+  tx: TransactionClient,
+  data: {
+    id: string;
+    scope: string;
+    title: string;
+    slug: string;
+    description?: string;
+    concessionaire: string;
+    stateCodes: string[];
+    documentType: string;
+    status: string;
+    tags: string[];
+    metadata: Record<string, unknown>;
+  },
+) {
+  const rows = await tx.$queryRaw<Array<{ id: string; title: string }>>`
+    insert into technical_documents (
+      id,
+      scope,
+      title,
+      slug,
+      description,
+      concessionaire,
+      state_codes,
+      document_type,
+      status,
+      tags,
+      metadata,
+      created_at,
+      updated_at
+    )
+    values (
+      ${data.id},
+      ${data.scope}::document_scope,
+      ${data.title},
+      ${data.slug},
+      ${data.description ?? null},
+      ${data.concessionaire},
+      ${data.stateCodes},
+      ${data.documentType}::technical_document_type,
+      ${data.status}::document_status,
+      ${data.tags},
+      ${JSON.stringify(data.metadata)}::jsonb,
+      now(),
+      now()
+    )
+    returning id, title
+  `;
+
+  return rows[0] ?? { id: data.id, title: data.title };
+}
+
+async function createDocumentVersionRaw(
+  tx: TransactionClient,
+  data: {
+    id: string;
+    documentId: string;
+    uploadedByUserId?: string;
+    versionLabel: string;
+    sourceFileName: string;
+    storagePath: string;
+    status: string;
+    processingStatus: string;
+    publishedAt?: Date;
+    metadata: Record<string, unknown>;
+  },
+) {
+  await tx.$executeRaw`
+    insert into document_versions (
+      id,
+      document_id,
+      uploaded_by_user_id,
+      version_label,
+      source_file_name,
+      storage_path,
+      status,
+      processing_status,
+      published_at,
+      metadata,
+      created_at,
+      updated_at
+    )
+    values (
+      ${data.id},
+      ${data.documentId},
+      ${data.uploadedByUserId ?? null},
+      ${data.versionLabel},
+      ${data.sourceFileName},
+      ${data.storagePath},
+      ${data.status}::version_status,
+      ${data.processingStatus}::processing_status,
+      ${data.publishedAt ?? null},
+      ${JSON.stringify(data.metadata)}::jsonb,
+      now(),
+      now()
+    )
+  `;
+}
+
+async function createAuditLogRaw(
+  tx: TransactionClient,
+  data: {
+    userId?: string;
+    entityId: string;
+    metadata: Record<string, unknown>;
+  },
+) {
+  try {
+    await tx.$executeRaw`
+      insert into audit_logs (
+        id,
+        user_id,
+        action,
+        entity_type,
+        entity_id,
+        metadata,
+        created_at
+      )
+      values (
+        ${randomUUID()},
+        ${data.userId ?? null},
+        ${"DOCUMENT_CREATED"}::audit_action,
+        ${"TechnicalDocument"},
+        ${data.entityId},
+        ${JSON.stringify(data.metadata)}::jsonb,
+        now()
+      )
+    `;
+  } catch (error) {
+    console.error("[documents/upload]", {
+      stage: "audit_log_create",
+      message: "Audit log insert skipped.",
+      errorName: error instanceof Error ? error.name : typeof error,
+    });
+  }
 }
 
 function readRequiredString(formData: FormData, key: string) {

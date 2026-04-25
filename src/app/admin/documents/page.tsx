@@ -1,62 +1,35 @@
 import Link from "next/link";
 import { AdminShell } from "@/components/layout/app-shell";
 import { AdminTable } from "@/components/ui/admin-table";
+import { AdminWarning } from "@/components/ui/admin-warning";
 import { DashboardSection } from "@/components/ui/dashboard-section";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
-import { prisma } from "@/lib/prisma";
-import { safePrisma } from "@/lib/prisma-safe";
+import { adminQuery } from "@/features/admin/lib/admin-database";
+import { getAdminDocuments } from "@/features/admin/lib/admin-documents";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminDocumentsPage() {
-  const documents = await safePrisma(
-    () =>
-      prisma.technicalDocument.findMany({
-        orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          title: true,
-          concessionaire: true,
-          stateCodes: true,
-          documentType: true,
-          status: true,
-          createdAt: true,
-          versions: {
-            orderBy: { createdAt: "desc" },
-            take: 1,
-            select: {
-              versionLabel: true,
-              createdAt: true,
-              pageCount: true,
-              chunkCount: true,
-              processingStatus: true,
-            },
-          },
-        },
-      }),
+  const documents = await adminQuery(
+    "admin documents list",
+    () => getAdminDocuments(100),
     [],
   );
 
-  const rows = documents.map((document) => {
-    const currentVersion = document.versions[0];
-
-    return [
+  const rows = documents.data.map((document) => [
       document.title,
       document.concessionaire ?? "-",
       document.stateCodes.join(", ") || "-",
       String(document.documentType),
-      currentVersion?.versionLabel ?? "-",
+      document.versionLabel ?? "-",
       String(document.status),
-      formatDate(currentVersion?.createdAt ?? document.createdAt),
-      String(currentVersion?.pageCount ?? 0),
-      String(currentVersion?.chunkCount ?? 0),
-      currentVersion?.processingStatus
-        ? String(currentVersion.processingStatus)
-        : "PENDING",
+      formatDate(document.versionCreatedAt ?? document.createdAt),
+      String(document.pageCount),
+      String(document.chunkCount),
+      document.processingStatus ? String(document.processingStatus) : "PENDING",
       "Ver",
-    ];
-  });
+    ]);
 
   return (
     <AdminShell>
@@ -65,6 +38,14 @@ export default async function AdminDocumentsPage() {
           eyebrow="Documentos"
           title="Acervo normativo"
           description="Documentos reais cadastrados no banco. O cliente nao envia nem gerencia documentos."
+        />
+        <AdminWarning
+          title="A listagem de documentos encontrou um problema"
+          details={
+            documents.ok
+              ? []
+              : [`Consulta ${documents.errorName} (${documents.errorCode}). Veja o Runtime Log da Vercel.`]
+          }
         />
         <DashboardSection title="Documentos cadastrados">
           {rows.length > 0 ? (
