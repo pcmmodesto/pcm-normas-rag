@@ -1,11 +1,4 @@
 import { randomUUID } from "crypto";
-import {
-  DocumentScope,
-  DocumentStatus,
-  ProcessingStatus,
-  TechnicalDocumentType,
-  VersionStatus,
-} from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
@@ -15,6 +8,21 @@ import {
   MAX_DOCUMENT_UPLOAD_BYTES,
 } from "@/features/documents/lib/upload-constants";
 
+const DOCUMENT_SCOPE_GLOBAL = "GLOBAL";
+const DOCUMENT_STATUS_DRAFT = "DRAFT";
+const VERSION_STATUS_DRAFT = "DRAFT";
+const PROCESSING_STATUS_PENDING = "PENDING";
+const TECHNICAL_DOCUMENT_TYPES = [
+  "TECHNICAL_STANDARD",
+  "CONNECTION_STANDARD",
+  "PROCEDURE",
+  "MANUAL",
+  "RESOLUTION",
+  "OTHER",
+] as const;
+
+type TechnicalDocumentTypeValue = (typeof TECHNICAL_DOCUMENT_TYPES)[number];
+
 type ValidationResult =
   | {
       ok: true;
@@ -22,10 +30,10 @@ type ValidationResult =
         title: string;
         concessionaire: string;
         state: string;
-        documentType: TechnicalDocumentType;
+        documentType: TechnicalDocumentTypeValue;
         versionLabel: string;
-        publishedAt?: Date;
-        description?: string;
+        publishedAt?: Date | undefined;
+        description?: string | undefined;
         tags: string[];
         file: File;
       };
@@ -188,14 +196,14 @@ export async function POST(request: Request) {
       );
       const document = await tx.technicalDocument.create({
         data: {
-          scope: DocumentScope.GLOBAL,
+          scope: DOCUMENT_SCOPE_GLOBAL,
           title: data.title,
           slug: `${documentSlug}-${randomUUID().slice(0, 8)}`,
           description: data.description,
           concessionaire: data.concessionaire,
           stateCodes: [data.state],
           documentType: data.documentType,
-          status: DocumentStatus.DRAFT,
+          status: DOCUMENT_STATUS_DRAFT,
           tags: data.tags,
           metadata: {
             uploadStage: "uploaded",
@@ -233,8 +241,8 @@ export async function POST(request: Request) {
           versionLabel: data.versionLabel,
           sourceFileName: data.file.name,
           storagePath,
-          status: VersionStatus.DRAFT,
-          processingStatus: ProcessingStatus.PENDING,
+          status: VERSION_STATUS_DRAFT,
+          processingStatus: PROCESSING_STATUS_PENDING,
           publishedAt: data.publishedAt,
           metadata: {
             storageBucket: bucket,
@@ -406,10 +414,10 @@ function parseTags(value: string | undefined) {
     .slice(0, 20);
 }
 
-function isTechnicalDocumentType(value: string): value is TechnicalDocumentType {
-  return Object.values(TechnicalDocumentType).includes(
-    value as TechnicalDocumentType,
-  );
+function isTechnicalDocumentType(
+  value: string,
+): value is TechnicalDocumentTypeValue {
+  return TECHNICAL_DOCUMENT_TYPES.includes(value as TechnicalDocumentTypeValue);
 }
 
 function buildSlug(value: string) {

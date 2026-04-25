@@ -1,54 +1,61 @@
 import Link from "next/link";
-import { AppShell } from "@/components/layout/app-shell";
+import { PublicShell } from "@/components/layout/app-shell";
 
 export default function LoginPage() {
   return (
-    <AppShell>
-      <section className="mx-auto grid min-h-[70vh] max-w-7xl gap-8 px-5 py-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+    <PublicShell>
+      <section className="mx-auto grid min-h-[72vh] max-w-7xl gap-10 px-5 py-14 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.12em] text-[#b88405]">
-            Acesso administrativo
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#19A7E8]">
+            Acesso ao SaaS
           </p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[#172033] md:text-5xl">
-            Entre para gerenciar o acervo técnico
+          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white md:text-5xl">
+            Entre para acessar seu painel e o chat tecnico
           </h1>
-          <p className="mt-4 max-w-xl text-base leading-7 text-[#5a667a]">
-            Esta tela está pronta para autenticação futura com Supabase. Por
-            enquanto, os campos são visuais e não enviam credenciais.
+          <p className="mt-5 max-w-xl text-base leading-7 text-[#CBD5E1]">
+            Tela visual preparada para autenticacao futura com e-mail, senha,
+            recuperacao de acesso, criacao de conta e Google.
           </p>
         </div>
-
-        <form className="rounded border border-[#d8dde6] bg-white p-6 shadow-sm">
-          <label className="block text-sm font-medium text-[#384457]">
+        <form className="rounded-2xl border border-slate-400/15 bg-white p-6 text-[#0F172A] shadow-2xl shadow-cyan-950/20">
+          <label className="block text-sm font-medium text-slate-700">
             E-mail
             <input
-              className="mt-2 w-full rounded border border-[#c8d0dc] px-3 py-3 outline-none transition focus:border-[#123c69] focus:ring-2 focus:ring-[#123c69]/15"
-              placeholder="admin@empresa.com"
+              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none transition focus:border-[#19A7E8] focus:ring-4 focus:ring-[#19A7E8]/10"
+              placeholder="voce@empresa.com"
               type="email"
             />
           </label>
-          <label className="mt-5 block text-sm font-medium text-[#384457]">
+          <label className="mt-5 block text-sm font-medium text-slate-700">
             Senha
             <input
-              className="mt-2 w-full rounded border border-[#c8d0dc] px-3 py-3 outline-none transition focus:border-[#123c69] focus:ring-2 focus:ring-[#123c69]/15"
+              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none transition focus:border-[#19A7E8] focus:ring-4 focus:ring-[#19A7E8]/10"
               placeholder="********"
               type="password"
             />
           </label>
           <button
-            className="mt-6 w-full rounded bg-[#123c69] px-5 py-3 font-semibold text-white transition hover:bg-[#0f3156]"
+            className="mt-6 w-full rounded-xl bg-[#123C7C] px-5 py-3 font-semibold text-white transition hover:bg-[#0A1633]"
             type="button"
           >
             Entrar
           </button>
-          <Link
-            className="mt-4 block text-center text-sm font-medium text-[#123c69]"
-            href="/"
+          <button
+            className="mt-3 w-full rounded-xl border border-slate-200 px-5 py-3 font-semibold text-[#123C7C]"
+            type="button"
           >
-            Voltar para início
-          </Link>
+            Entrar com Google futuramente
+          </button>
+          <div className="mt-5 flex flex-wrap justify-between gap-3 text-sm">
+            <Link className="font-medium text-[#123C7C]" href="/dashboard">
+              Criar conta
+            </Link>
+            <Link className="font-medium text-[#123C7C]" href="/login">
+              Recuperar senha
+            </Link>
+          </div>
         </form>
       </section>
-    </AppShell>
+    </PublicShell>
   );
 }

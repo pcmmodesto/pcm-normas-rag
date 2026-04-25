@@ -1,101 +1,117 @@
 import Link from "next/link";
-import { AppShell } from "@/components/layout/app-shell";
-import { SectionHeading } from "@/components/ui/section-heading";
-import { StatCard } from "@/components/ui/stat-card";
-import { plannedIntegrations } from "@/lib/integrations";
+import { PublicShell } from "@/components/layout/app-shell";
+import { PricingCard } from "@/components/ui/pricing-card";
+import { FreeChatWidget } from "@/features/dashboard/components/free-chat-widget";
+import { pricingPlans } from "@/features/dashboard/mock-data";
 
-const workflow = [
-  "Upload controlado de PDFs de normas técnicas",
-  "Extração de páginas, trechos e metadados",
-  "Geração de embeddings e armazenamento vetorial",
-  "Respostas com fonte, página e trecho utilizado",
+const steps = [
+  ["1", "Envie ou selecione documentos oficiais", "Normas, notas tecnicas, EPDs, EPEs, manuais e especificacoes."],
+  ["2", "Pergunte em linguagem natural", "O sistema classifica se a consulta e basica, tecnica ou precisa de contexto."],
+  ["3", "Receba resposta rastreavel", "A resposta futura deve citar fonte, pagina, item, tabela e trecho usado."],
+];
+
+const differentiators = [
+  "Base documental organizada por concessionaria, estado, versao e categoria.",
+  "Separacao clara entre consulta basica gratuita e consulta tecnica paga.",
+  "Arquitetura preparada para tabelas, abacos, regras tecnicas e PDFs.",
+  "Regras anti-alucinacao: nunca inventar valor, pagina, cabo ou tabela.",
 ];
 
 export default function Home() {
   return (
-    <AppShell>
-      <section className="border-b border-[#d8dde6] bg-white">
-        <div className="mx-auto grid max-w-7xl gap-10 px-5 py-14 lg:grid-cols-[1.2fr_0.8fr] lg:items-center">
+    <PublicShell>
+      <section className="bg-[radial-gradient(circle_at_top_left,rgba(25,167,232,0.28),transparent_34%),linear-gradient(135deg,#050B1F_0%,#0A1633_62%,#050B1F_100%)]">
+        <div className="mx-auto grid max-w-7xl gap-10 px-5 py-16 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div>
-            <SectionHeading
-              eyebrow="Base visual inicial"
-              title="PCM Normas RAG"
-              description="Aplicativo independente para organizar, consultar e futuramente responder perguntas sobre normas técnicas de concessionárias de energia com rastreabilidade por fonte."
-            />
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#19A7E8]">
+              PCM Modesto Engenharia
+            </p>
+            <h1 className="mt-4 max-w-4xl text-4xl font-semibold tracking-tight text-white md:text-6xl">
+              Consulta inteligente de normas tecnicas de concessionarias
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-[#CBD5E1]">
+              Procurar informacao em normas, tabelas e documentos de
+              concessionaria toma tempo. Pergunte ao assistente e receba uma
+              resposta com fonte, pagina e rastreabilidade.
+            </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link
-                className="rounded bg-[#123c69] px-5 py-3 text-center font-semibold text-white transition hover:bg-[#0f3156]"
-                href="/chat"
+              <a
+                className="rounded-xl bg-[#19A7E8] px-5 py-3 text-center font-semibold text-[#050B1F] transition hover:bg-[#8EDBFF]"
+                href="#consulta-gratuita"
               >
-                Abrir chat técnico
+                Testar consulta gratuita
+              </a>
+              <Link
+                className="rounded-xl border border-white/15 bg-white/10 px-5 py-3 text-center font-semibold text-white transition hover:bg-white/15"
+                href="/login"
+              >
+                Entrar no sistema
               </Link>
               <Link
-                className="rounded border border-[#c8d0dc] px-5 py-3 text-center font-semibold text-[#172033] transition hover:bg-[#f2f5f9]"
-                href="/admin"
+                className="rounded-xl border border-[#D4AF37]/45 bg-[#D4AF37]/10 px-5 py-3 text-center font-semibold text-[#F8E7A1] transition hover:bg-[#D4AF37]/15"
+                href="/pricing"
               >
-                Ver painel
+                Ver planos
               </Link>
             </div>
           </div>
-
-          <div className="rounded border border-[#d8dde6] bg-[#f8fafc] p-6 shadow-sm">
-            <p className="text-sm font-semibold text-[#123c69]">
-              Fluxo RAG planejado
-            </p>
-            <ol className="mt-5 space-y-4">
-              {workflow.map((item, index) => (
-                <li className="flex gap-3" key={item}>
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-[#f5c542] text-sm font-bold text-[#172033]">
-                    {index + 1}
-                  </span>
-                  <span className="text-sm leading-6 text-[#384457]">
-                    {item}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </div>
+          <FreeChatWidget />
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-5 py-12">
-        <div className="grid gap-4 md:grid-cols-3">
-          <StatCard
-            detail="Tela demonstrativa para acervo futuro."
-            label="Normas indexadas"
-            value="0"
-          />
-          <StatCard
-            detail="Integração futura com embeddings."
-            label="Trechos vetoriais"
-            value="0"
-          />
-          <StatCard
-            detail="Sem chamadas de IA nesta etapa."
-            label="Consultas RAG"
-            value="0"
-          />
-        </div>
-
-        <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {plannedIntegrations.map((integration) => (
+      <section id="consulta-gratuita" className="mx-auto max-w-7xl px-5 py-14">
+        <div className="grid gap-5 lg:grid-cols-3">
+          {steps.map(([number, title, description]) => (
             <article
-              className="rounded border border-[#d8dde6] bg-white p-5"
-              key={integration.name}
+              className="rounded-2xl border border-slate-400/15 bg-white/[0.06] p-6 shadow-xl shadow-cyan-950/10"
+              key={title}
             >
-              <h2 className="text-lg font-semibold text-[#172033]">
-                {integration.name}
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-[#5a667a]">
-                {integration.purpose}
-              </p>
-              <p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-[#b88405]">
-                {integration.status}
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#19A7E8] font-semibold text-[#050B1F]">
+                {number}
+              </span>
+              <h2 className="mt-5 text-xl font-semibold text-white">{title}</h2>
+              <p className="mt-3 text-sm leading-6 text-[#CBD5E1]">
+                {description}
               </p>
             </article>
           ))}
         </div>
       </section>
-    </AppShell>
+
+      <section className="bg-white py-14 text-[#0F172A]">
+        <div className="mx-auto max-w-7xl px-5">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#123C7C]">
+              Planos
+            </p>
+            <h2 className="mt-3 text-3xl font-semibold">
+              Do atendimento basico ao criterio tecnico rastreavel
+            </h2>
+            <p className="mt-4 text-slate-600">
+              Pagamento real ainda nao esta ativo. Os botoes preparam login e
+              checkout futuro.
+            </p>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+            {pricingPlans.map((plan) => (
+              <PricingCard key={plan.name} {...plan} tone="light" />
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-5 py-14">
+        <div className="grid gap-5 md:grid-cols-2">
+          {differentiators.map((item) => (
+            <div
+              className="rounded-2xl border border-slate-400/15 bg-[#0A1633] p-6 text-[#CBD5E1]"
+              key={item}
+            >
+              {item}
+            </div>
+          ))}
+        </div>
+      </section>
+    </PublicShell>
   );
 }

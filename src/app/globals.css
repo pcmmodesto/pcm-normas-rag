@@ -1,8 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f7f9;
-  --foreground: #18202f;
+  --background: #050b1f;
+  --foreground: #f8fafc;
+  --pcm-navy: #050b1f;
+  --pcm-navy-soft: #0a1633;
+  --pcm-blue: #123c7c;
+  --pcm-cyan: #19a7e8;
+  --pcm-gradient: #276ef1;
+  --pcm-gold: #d4af37;
+  --pcm-muted: #cbd5e1;
 }
 
 @theme inline {
@@ -23,6 +30,6 @@ body {
 }
 
 ::selection {
-  background: #f5c542;
-  color: #172033;
+  background: #19a7e8;
+  color: #050b1f;
 }

@@ -21,7 +21,7 @@ type UploadResult = {
 };
 
 const inputClassName =
-  "mt-2 w-full rounded border border-[#c8d0dc] px-3 py-3 outline-none transition focus:border-[#123c69] focus:ring-2 focus:ring-[#123c69]/15";
+  "mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[#0F172A] outline-none transition placeholder:text-slate-400 focus:border-[#19A7E8] focus:ring-4 focus:ring-[#19A7E8]/10";
 
 export function DocumentUploadForm() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -85,10 +85,10 @@ export function DocumentUploadForm() {
 
   return (
     <form
-      className="rounded border border-[#d8dde6] bg-white p-6 shadow-sm"
+      className="rounded-2xl border border-slate-200 bg-white p-6 text-[#0F172A] shadow-sm"
       onSubmit={handleSubmit}
     >
-      <label className="block text-sm font-medium text-[#384457]">
+      <label className="block text-sm font-medium text-slate-700">
         Titulo da norma
         <input
           className={inputClassName}
@@ -101,7 +101,7 @@ export function DocumentUploadForm() {
       </label>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <label className="block text-sm font-medium text-[#384457]">
+        <label className="block text-sm font-medium text-slate-700">
           Concessionaria
           <input
             className={inputClassName}
@@ -112,7 +112,7 @@ export function DocumentUploadForm() {
             type="text"
           />
         </label>
-        <label className="block text-sm font-medium text-[#384457]">
+        <label className="block text-sm font-medium text-slate-700">
           Estado
           <select className={inputClassName} defaultValue="" name="state" required>
             <option disabled value="">
@@ -128,7 +128,7 @@ export function DocumentUploadForm() {
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <label className="block text-sm font-medium text-[#384457]">
+        <label className="block text-sm font-medium text-slate-700">
           Tipo de documento
           <select
             className={inputClassName}
@@ -146,7 +146,7 @@ export function DocumentUploadForm() {
             ))}
           </select>
         </label>
-        <label className="block text-sm font-medium text-[#384457]">
+        <label className="block text-sm font-medium text-slate-700">
           Versao
           <input
             className={inputClassName}
@@ -160,11 +160,11 @@ export function DocumentUploadForm() {
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <label className="block text-sm font-medium text-[#384457]">
+        <label className="block text-sm font-medium text-slate-700">
           Data de publicacao
           <input className={inputClassName} name="publishedAt" type="date" />
         </label>
-        <label className="block text-sm font-medium text-[#384457]">
+        <label className="block text-sm font-medium text-slate-700">
           Tags
           <input
             className={inputClassName}
@@ -175,7 +175,7 @@ export function DocumentUploadForm() {
         </label>
       </div>
 
-      <label className="mt-5 block text-sm font-medium text-[#384457]">
+      <label className="mt-5 block text-sm font-medium text-slate-700">
         Descricao
         <textarea
           className={`${inputClassName} min-h-28 resize-y`}
@@ -185,11 +185,11 @@ export function DocumentUploadForm() {
         />
       </label>
 
-      <div className="mt-6 rounded border border-dashed border-[#aeb8c7] bg-[#f8fafc] p-8 text-center">
-        <p className="font-semibold text-[#172033]">
+      <div className="mt-6 rounded-2xl border border-dashed border-[#19A7E8]/45 bg-[#F8FAFC] p-8 text-center">
+        <p className="font-semibold text-[#0F172A]">
           Solte um PDF aqui ou selecione um arquivo
         </p>
-        <p className="mt-2 text-sm text-[#657187]">
+        <p className="mt-2 text-sm text-slate-500">
           Arquivo PDF privado, ate 50 MB. O texto sera processado em etapa
           futura.
         </p>
@@ -203,29 +203,29 @@ export function DocumentUploadForm() {
           type="file"
         />
         <button
-          className="mt-5 rounded border border-[#c8d0dc] px-4 py-2 font-semibold text-[#172033] transition hover:bg-white"
+          className="mt-5 rounded-xl border border-slate-200 bg-white px-4 py-2 font-semibold text-[#123C7C] transition hover:border-[#19A7E8]"
           onClick={() => fileInputRef.current?.click()}
           type="button"
         >
           Selecionar PDF
         </button>
-        <p className="mt-3 text-sm text-[#384457]">{selectedFileLabel}</p>
+        <p className="mt-3 text-sm text-slate-600">{selectedFileLabel}</p>
       </div>
 
       {error ? (
-        <div className="mt-5 rounded border border-[#f0b6b6] bg-[#fff1f1] p-4 text-sm text-[#8a1f1f]">
+        <div className="mt-5 rounded-md border border-red-300/30 bg-red-400/10 p-4 text-sm text-red-100">
           {error}
         </div>
       ) : null}
 
       {message ? (
-        <div className="mt-5 rounded border border-[#b8dcc4] bg-[#f0fbf3] p-4 text-sm text-[#28633a]">
+        <div className="mt-5 rounded-md border border-emerald-300/30 bg-emerald-400/10 p-4 text-sm text-emerald-100">
           {message}
         </div>
       ) : null}
 
       <button
-        className="mt-6 rounded bg-[#123c69] px-5 py-3 font-semibold text-white transition hover:bg-[#0f3156] disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-6 rounded-xl bg-[#123C7C] px-5 py-3 font-semibold text-white transition hover:bg-[#0A1633] disabled:cursor-not-allowed disabled:opacity-60"
         disabled={isSubmitting}
         type="submit"
       >

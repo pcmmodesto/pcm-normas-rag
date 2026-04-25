@@ -1,47 +1,49 @@
-import { AppShell } from "@/components/layout/app-shell";
-import { SectionHeading } from "@/components/ui/section-heading";
+import { AdminShell } from "@/components/layout/app-shell";
+import { AdminTable } from "@/components/ui/admin-table";
+import { DashboardSection } from "@/components/ui/dashboard-section";
+import { PageHeader } from "@/components/ui/page-header";
 import { DocumentUploadForm } from "@/features/documents/components/document-upload-form";
+import { recentUploads } from "@/features/dashboard/mock-data";
 
 export default function UploadPage() {
   return (
-    <AppShell>
-      <section className="mx-auto max-w-7xl px-5 py-12">
-        <SectionHeading
-          eyebrow="Cadastro de normas"
+    <AdminShell>
+      <div className="space-y-6">
+        <PageHeader
+          eyebrow="Upload real"
           title="Upload de normas tecnicas"
-          description="Envie PDFs para o bucket privado do Supabase Storage e registre os metadados iniciais para processamento futuro."
+          description="Envie PDFs para o bucket privado do Supabase Storage e registre metadados iniciais. O formulario real e a rota /api/documents/upload continuam preservados."
         />
-
-        <div className="mt-10 grid gap-6 lg:grid-cols-[1fr_0.8fr]">
+        <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
           <DocumentUploadForm />
-
-          <aside className="rounded border border-[#d8dde6] bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold text-[#172033]">
-              Metadados previstos
-            </h2>
-            <dl className="mt-5 space-y-4 text-sm">
-              <div>
-                <dt className="font-semibold text-[#384457]">Paginas</dt>
-                <dd className="mt-1 text-[#657187]">
-                  Total de paginas e mapeamento por trecho.
-                </dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-[#384457]">Chunks</dt>
-                <dd className="mt-1 text-[#657187]">
-                  Segmentos preparados para embeddings e busca semantica.
-                </dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-[#384457]">Fontes</dt>
-                <dd className="mt-1 text-[#657187]">
-                  Citacao da norma, pagina e trecho usado em cada resposta.
-                </dd>
-              </div>
-            </dl>
-          </aside>
+          <div className="space-y-6">
+            <DashboardSection title="Regras do envio">
+              <dl className="space-y-4 text-sm text-slate-700">
+                <div>
+                  <dt className="font-semibold text-[#0F172A]">Bucket</dt>
+                  <dd className="mt-1">technical-documents privado, sem URL publica.</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-[#0F172A]">Limite</dt>
+                  <dd className="mt-1">PDF obrigatorio, ate 50 MB.</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-[#0F172A]">Proxima etapa</dt>
+                  <dd className="mt-1">Extracao de texto, paginas, chunks, tabelas e embeddings.</dd>
+                </div>
+              </dl>
+            </DashboardSection>
+            <DashboardSection title="Ultimos documentos enviados">
+              <AdminTable
+                headers={["Titulo", "UF", "Status", "Data"]}
+                rows={recentUploads}
+                statusColumn={2}
+                tone="light"
+              />
+            </DashboardSection>
+          </div>
         </div>
-      </section>
-    </AppShell>
+      </div>
+    </AdminShell>
   );
 }

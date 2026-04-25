@@ -6,6 +6,40 @@ tecnicas de concessionarias de energia.
 O produto e uma ferramenta independente. Nao e oficial, afiliado ou endossado
 pela Equatorial ou por qualquer concessionaria.
 
+## Visao do produto
+
+O PCM Normas RAG sera um assistente inteligente para consulta de normas,
+notas tecnicas, especificacoes de materiais, padroes de entrada, EPDs, EPEs,
+manuais e documentos tecnicos de concessionarias de energia.
+
+A resposta futura deve ser baseada exclusivamente nos documentos cadastrados e
+sempre rastreavel por documento, versao, concessionaria, estado, pagina, item
+normativo, tabela, trecho usado, confianca, limitacoes e observacoes.
+
+O sistema atende dois publicos:
+
+- Cliente comum: perguntas simples de baixa tensao, ligacao nova, documentos,
+  titularidade, religacao, segunda via, protocolo e passo a passo. Esse escopo
+  sera gratuito dentro dos limites definidos.
+- Publico tecnico: criterios de media tensao, subestacao, cabos, estruturas,
+  materiais, redes aereas/subterraneas, tabelas, abacos, EPD/EPE e
+  interpretacao normativa. Esse escopo sera pago.
+
+## Modelo comercial preparado
+
+Pagamento real ainda nao foi implementado. A modelagem e os servicos foram
+preparados para futuro gateway como Stripe:
+
+- `FREE_BT`: consultas basicas gratuitas de baixa tensao e atendimento.
+- `TECHNICAL_SINGLE_QUERY`: consulta tecnica avulsa por R$ 10,00.
+- `TECHNICAL_MONTHLY`: assinatura tecnica mensal por R$ 30,00/mes.
+- `TECHNICAL_ANNUAL`: assinatura anual por R$ 306,00/ano, com 15% de desconto
+  sobre R$ 360,00.
+
+O servico `evaluateQueryAccess` retorna se a consulta pode seguir, qual produto
+e exigido, preco em centavos e mensagem para o usuario. Sem autenticacao real,
+consultas tecnicas avancadas retornam estado de pagamento requerido.
+
 ## Stack inicial
 
 - Next.js com App Router
@@ -21,14 +55,22 @@ pela Equatorial ou por qualquer concessionaria.
 
 Implementado:
 
+- Identidade visual PCM em navy/ciano para SaaS tecnico
+- Design system simples com shell, cards, tabelas, badges, barras de uso,
+  secoes, precificacao e ajuda
 - Pagina inicial profissional
 - Pagina de login visual
 - Painel administrativo visual
+- Painel do cliente visual
+- Telas de assinaturas, financeiro, auditoria, documentos e exportacoes PDF
 - Upload real de PDFs para Supabase Storage privado
 - Pagina de chat tecnico visual
 - Layout com navegacao
 - Schema Prisma multiempresa e multiusuario
 - Preparacao para chunks vetoriais com pgvector
+- Classificacao inicial de perguntas por palavras-chave
+- Estrutura de paywall para consulta tecnica avulsa e assinaturas
+- Modelagem para tabelas tecnicas, abacos, regras tecnicas e feedback validado
 - Base de previa para PDF tecnico e PDF explicativo para cliente
 - `.env.example`
 
@@ -38,6 +80,59 @@ Ainda nao implementado:
 - IA, embeddings ou chamadas OpenAI
 - Renderizacao real/download de PDF
 - Processamento de documentos, extracao de texto, chunks e embeddings
+- Pagamento real, checkout ou integracao Stripe
+
+## Identidade visual e rotas
+
+A interface foi redesenhada para a marca PCM Modesto Engenharia com fundo navy,
+gradiente azul profundo, destaques em ciano, texto claro e acabamento tecnico
+institucional.
+
+Arquitetura de produto:
+
+- Area publica: landing page, consulta gratuita basica, planos, ajuda e login.
+- Area do cliente: dashboard pos-login, chat tecnico, historico, uso, PDFs e
+  configuracoes.
+- Area administrativa: painel interno para documentos, uploads, processamento,
+  usuarios, assinaturas, financeiro, PDFs e logs.
+
+Rotas publicas:
+
+- `/`: home institucional com proposta de valor e beneficios.
+- `/chat`: entrada publica para consulta basica e CTA para login.
+- `/pricing`: planos gratuito, avulso, mensal e anual.
+- `/help`: central de ajuda e limites da IA.
+- `/login`: tela visual de login, criar conta, recuperar senha e Google futuro.
+
+Rotas do cliente:
+
+- `/dashboard`: painel do cliente.
+- `/dashboard/chat`: chat tecnico autenticado/pago em modo mock.
+- `/dashboard/usage`: uso mensal e anual.
+- `/dashboard/history`: historico de consultas.
+- `/dashboard/pdfs`: PDFs gerados pelo cliente.
+- `/dashboard/settings`: configuracoes de conta e empresa.
+
+Rotas administrativas:
+
+- `/admin`: dashboard geral do sistema.
+- `/admin/upload`: upload real de PDFs para o bucket privado.
+- `/admin/documents`: acervo e processamento de documentos.
+- `/admin/processing`: fila futura de extracao, chunks e embeddings.
+- `/admin/users`: usuarios e clientes.
+- `/admin/subscriptions`: assinaturas e uso contratado.
+- `/admin/logs`: logs e auditoria.
+- `/admin/finance`: financeiro, MRR, ARR e receitas estimadas.
+- `/admin/pdf-exports`: exportacoes futuras de PDFs.
+
+Os dados de dashboards, tabelas e planos ficam centralizados em
+`src/features/dashboard/mock-data.ts`. Eles sao placeholders e nao representam
+clientes reais.
+
+O aviso institucional permanece obrigatorio em toda a aplicacao:
+
+> Ferramenta independente. Nao e oficial, afiliada ou endossada pela Equatorial
+> ou por concessionarias de energia.
 
 ## Como rodar
 
@@ -91,6 +186,7 @@ npm run prisma:migrate:dev
 npm run prisma:db:push
 npm run prisma:studio
 npm run prisma:check
+npm run seed:plans
 ```
 
 ## Modelagem de dados
@@ -122,14 +218,64 @@ Cada documento suporta:
 - diferentes tipos de norma por `documentType`;
 - tags e metadados flexiveis em JSON.
 
+Campos adicionais preparam classificacao normativa:
+
+- `DocumentAudience`: cliente comum, tecnico ou ambos.
+- `DocumentCategory`: baixa tensao, media tensao, subestacao, rede aerea,
+  rede subterranea, EPD, EPE, tabela tecnica, abaco e outras categorias.
+
+### Classificacao de perguntas e paywall
+
+Os servicos em `src/features/rag/lib` fazem uma classificacao inicial simples,
+sem IA:
+
+- `classifyUserQuestion(question)`: retorna audiencia, complexidade, tipo de
+  consulta, topicos detectados, tensao/estado/concessionaria quando possivel,
+  se exige pagamento e contexto faltante.
+- `detectMissingContext(classification)`: lista variaveis obrigatorias para
+  consultas tecnicas, como concessionaria, estado, tensao, potencia/demanda,
+  tipo de entrada, padrao aereo/subterraneo, vao, cabo/material e norma.
+- `evaluateQueryAccess(params)`: aplica regras de acesso gratuito, credito
+  avulso, plano mensal/anual ou acesso interno.
+
+A classificacao atual usa palavras-chave. A assinatura das funcoes foi mantida
+simples para permitir substituicao futura por IA ou classificador treinado.
+
+### Tabelas, abacos e regras tecnicas
+
+O schema possui estruturas preparadas para extracao supervisionada:
+
+- `TechnicalTable`: tabela extraida de uma versao/pagina de documento.
+- `TechnicalTableRow`: linhas normalizadas em JSON para consultas futuras.
+- `TechnicalAbacus`: abacos e referencias graficas/textuais extraidas.
+- `TechnicalRule`: regra tecnica estruturada, com condicoes e resultados em
+  JSON, fonte normativa e status de validacao.
+
+Essas tabelas foram criadas para perguntas como cabo de subestacao de 300 kVA,
+estrutura para angulo e cabo especifico, material padronizado e criterio de
+tabela por concessionaria/estado.
+
 ### RAG e citacoes
 
 - `RagQuestion`: pergunta feita por usuario, empresa e, opcionalmente, documento.
 - `RagAnswer`: resposta gerada, com modelo, tokens e latencia futuros.
 - `RagAnswerSource`: fontes usadas na resposta. Guarda chunk, pagina, indice,
-  titulo do documento, trecho citado e score de relevancia.
+titulo do documento, trecho citado e score de relevancia.
 
 Essa estrutura permite auditar exatamente quais chunks sustentaram cada resposta.
+
+`NormativeAnswerPayload` em `src/features/rag/lib/answer-types.ts` define o
+contrato futuro da resposta rastreavel, incluindo fontes usadas, calculos,
+tabelas, abacos, contexto faltante, limitacoes, disclaimer e confianca.
+
+### Feedback supervisionado
+
+- `AnswerFeedback`: nota, tipo de feedback, comentario e correcao sugerida.
+- `ValidatedAnswer`: resposta validada por especialista, com padrao de pergunta,
+  payload JSON e fontes.
+
+O sistema nao deve aprender automaticamente com qualquer usuario. A evolucao da
+base deve passar por revisao e validacao supervisionada.
 
 ### Planos e auditoria
 
@@ -196,6 +342,53 @@ Modulos principais:
 Disclaimers obrigatorios sao exibidos em todos os templates. A interface deixa
 claro que os dados atuais sao demonstrativos enquanto o RAG real nao estiver
 conectado.
+
+## Regras anti-alucinacao
+
+As regras futuras estao em
+`src/features/rag/rules/normative-answer-rules.ts`:
+
+- nunca inventar cabo, estrutura, item, tabela, pagina ou valor;
+- se nao houver fonte suficiente, dizer que a base documental e insuficiente;
+- sempre citar documento, pagina e trecho em respostas tecnicas;
+- diferenciar resposta para leigo e resposta tecnica;
+- perguntar contexto faltante quando necessario;
+- nao definir cabo, estrutura ou material apenas por calculo isolado;
+- cruzar calculos com tabela normativa, abaco ou regra tecnica estruturada.
+
+Exemplo: para subestacao de 300 kVA, o sistema pode calcular corrente por
+`I = S / (raiz(3) x V)`, mas nunca deve definir cabo apenas por esse calculo.
+Deve cruzar com tabela normativa. Se a tabela nao existir na base, deve informar
+que a base e insuficiente.
+
+## Fluxo futuro de RAG normativo
+
+1. Upload do PDF.
+2. Extracao de texto por pagina.
+3. Deteccao de sumario, itens, tabelas e abacos.
+4. Geracao de `DocumentPage`.
+5. Geracao de `DocumentChunk`.
+6. Extracao de `TechnicalTable`.
+7. Extracao de `TechnicalTableRow`.
+8. Extracao de `TechnicalAbacus`.
+9. Criacao supervisionada de `TechnicalRule`.
+10. Geracao de embeddings.
+11. Busca hibrida: semantica, keyword, metadados, tabela e regra tecnica.
+12. Resposta com fontes.
+13. Feedback do usuario.
+14. Validacao por especialista.
+15. Base de respostas validadas.
+
+## Seeds de planos
+
+Apos aplicar a migration que cria `ProductPlan`, execute:
+
+```bash
+npm run seed:plans
+```
+
+O seed insere/atualiza `FREE_BT`, `TECHNICAL_SINGLE_QUERY`,
+`TECHNICAL_MONTHLY` e `TECHNICAL_ANNUAL`.
 
 ## Proximos passos sugeridos
 

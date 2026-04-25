@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "prisma:generate": "prisma generate",
@@ -13,7 +13,8 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:db:push": "prisma db push",
     "prisma:studio": "prisma studio",
-    "prisma:check": "node scripts/prisma-connection-check.mjs"
+    "prisma:check": "node scripts/prisma-connection-check.mjs",
+    "seed:plans": "node scripts/seed-product-plans.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

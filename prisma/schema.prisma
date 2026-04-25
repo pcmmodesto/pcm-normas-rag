@@ -48,6 +48,38 @@ enum DocumentScope {
   @@map("document_scope")
 }
 
+enum DocumentAudience {
+  PUBLIC_CLIENT
+  TECHNICAL
+  BOTH
+
+  @@map("document_audience")
+}
+
+enum DocumentCategory {
+  BAIXA_TENSAO
+  MEDIA_TENSAO
+  ALTA_TENSAO
+  LIGACAO_NOVA
+  PADRAO_ENTRADA
+  SUBESTACAO
+  REDE_DISTRIBUICAO
+  REDE_AEREA
+  REDE_SUBTERRANEA
+  GERACAO_DISTRIBUIDA
+  ESPECIFICACAO_MATERIAL
+  NOTA_TECNICA
+  EPD
+  EPE
+  MANUAL
+  PROCEDIMENTO
+  TABELA_TECNICA
+  ABACO
+  OUTRO
+
+  @@map("document_category")
+}
+
 enum TechnicalDocumentType {
   TECHNICAL_STANDARD
   CONNECTION_STANDARD
@@ -106,6 +138,148 @@ enum RagAnswerStatus {
   @@map("rag_answer_status")
 }
 
+enum QuestionAudience {
+  CLIENT
+  TECHNICAL
+  UNKNOWN
+
+  @@map("question_audience")
+}
+
+enum QuestionComplexity {
+  SIMPLE
+  INTERMEDIATE
+  ADVANCED
+
+  @@map("question_complexity")
+}
+
+enum AccessLevel {
+  FREE
+  PAID_SINGLE
+  PAID_SUBSCRIPTION
+  INTERNAL_ADMIN
+
+  @@map("access_level")
+}
+
+enum BillingProduct {
+  FREE_BT
+  TECHNICAL_SINGLE_QUERY
+  TECHNICAL_MONTHLY
+  TECHNICAL_ANNUAL
+
+  @@map("billing_product")
+}
+
+enum QueryType {
+  BASIC_INFO
+  STEP_BY_STEP
+  DOCUMENT_LIST
+  TECHNICAL_CRITERIA
+  DIMENSIONING
+  TABLE_LOOKUP
+  ABACO_LOOKUP
+  MATERIAL_SPECIFICATION
+  NETWORK_STRUCTURE
+  SUBSTATION
+  REGULATORY_INTERPRETATION
+  UNKNOWN
+
+  @@map("query_type")
+}
+
+enum AnswerStatus {
+  DRAFT
+  GENERATED
+  NEEDS_MORE_CONTEXT
+  INSUFFICIENT_SOURCE
+  VALIDATED
+  FLAGGED
+  REJECTED
+
+  @@map("answer_status")
+}
+
+enum BillingInterval {
+  NONE
+  SINGLE
+  MONTH
+  YEAR
+
+  @@map("billing_interval")
+}
+
+enum SubscriptionStatus {
+  INCOMPLETE
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+
+  @@map("subscription_status")
+}
+
+enum QueryCreditSource {
+  PURCHASE
+  SUBSCRIPTION
+  ADMIN_GRANT
+  PROMOTION
+
+  @@map("query_credit_source")
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  CANCELED
+
+  @@map("payment_status")
+}
+
+enum TechnicalRuleSourceType {
+  TABLE
+  ABACUS
+  CHUNK
+  DOCUMENT
+  MANUAL_REVIEW
+
+  @@map("technical_rule_source_type")
+}
+
+enum TechnicalRuleStatus {
+  DRAFT
+  REVIEW_REQUIRED
+  VALIDATED
+  ARCHIVED
+
+  @@map("technical_rule_status")
+}
+
+enum AnswerFeedbackType {
+  HELPFUL
+  INCORRECT
+  MISSING_SOURCE
+  UNSAFE_TECHNICAL
+  OUTDATED_NORM
+  OTHER
+
+  @@map("answer_feedback_type")
+}
+
+enum ValidationStatus {
+  DRAFT
+  REVIEWED
+  VALIDATED
+  REJECTED
+  ARCHIVED
+
+  @@map("validation_status")
+}
+
 enum AuditAction {
   USER_LOGIN
   DOCUMENT_CREATED
@@ -148,6 +322,11 @@ model User {
   uploadedVersions   DocumentVersion[] @relation("DocumentVersionUploader")
   ragQuestions       RagQuestion[]
   auditLogs          AuditLog[]
+  subscriptions      UserSubscription[]
+  queryCredits       QueryCredit[]
+  paidQueryPurchases PaidQueryPurchase[]
+  answerFeedbacks    AnswerFeedback[]
+  validatedAnswers   ValidatedAnswer[]  @relation("ValidatedAnswerReviewer")
 
   @@index([email])
   @@map("users")
@@ -171,6 +350,9 @@ model Company {
   ragQuestions       RagQuestion[]
   auditLogs          AuditLog[]
   planUsages         PlanUsage[]
+  subscriptions      UserSubscription[]
+  queryCredits       QueryCredit[]
+  paidQueryPurchases PaidQueryPurchase[]
 
   @@index([slug])
   @@index([status, plan])
@@ -208,6 +390,8 @@ model TechnicalDocument {
   concessionaire String?
   stateCodes     String[]              @default([]) @map("state_codes")
   documentType   TechnicalDocumentType @default(TECHNICAL_STANDARD) @map("document_type")
+  audience       DocumentAudience      @default(BOTH)
+  categories     DocumentCategory[]    @default([])
   status         DocumentStatus        @default(DRAFT)
   tags           String[]              @default([])
   metadata       Json                  @default("{}")
@@ -222,6 +406,7 @@ model TechnicalDocument {
   @@index([scope, status])
   @@index([concessionaire])
   @@index([documentType])
+  @@index([audience])
   @@map("technical_documents")
 }
 
@@ -249,6 +434,8 @@ model DocumentVersion {
   uploadedBy User?             @relation("DocumentVersionUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
   pages      DocumentPage[]
   chunks     DocumentChunk[]
+  tables     TechnicalTable[]
+  abacos     TechnicalAbacus[]
 
   @@unique([documentId, versionLabel])
   @@index([status, processingStatus])
@@ -267,6 +454,8 @@ model DocumentPage {
 
   documentVersion DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
   chunks          DocumentChunk[]
+  tables          TechnicalTable[]
+  abacos          TechnicalAbacus[]
 
   @@unique([documentVersionId, pageNumber])
   @@index([pageNumber])
@@ -306,6 +495,15 @@ model RagQuestion {
   question            String
   normalizedQuestion  String?           @map("normalized_question")
   status              RagQuestionStatus @default(RECEIVED)
+  audience            QuestionAudience  @default(UNKNOWN)
+  complexity          QuestionComplexity @default(SIMPLE)
+  queryType           QueryType         @default(UNKNOWN) @map("query_type")
+  accessLevel         AccessLevel       @default(FREE) @map("access_level")
+  requiredProduct     BillingProduct?   @map("required_product")
+  detectedTopics      String[]          @default([]) @map("detected_topics")
+  detectedVoltageLevel String?          @map("detected_voltage_level")
+  requiresPaidAccess  Boolean           @default(false) @map("requires_paid_access")
+  missingContext      String[]          @default([]) @map("missing_context")
   metadata            Json              @default("{}")
   createdAt           DateTime          @default(now()) @map("created_at")
   updatedAt           DateTime          @updatedAt @map("updated_at")
@@ -314,11 +512,14 @@ model RagQuestion {
   user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   technicalDocument TechnicalDocument? @relation(fields: [technicalDocumentId], references: [id], onDelete: SetNull)
   answer            RagAnswer?
+  paidPurchases     PaidQueryPurchase[]
 
   @@index([companyId, createdAt])
   @@index([userId, createdAt])
   @@index([technicalDocumentId])
   @@index([status])
+  @@index([audience, complexity])
+  @@index([accessLevel, requiresPaidAccess])
   @@map("rag_questions")
 }
 
@@ -327,6 +528,10 @@ model RagAnswer {
   ragQuestionId    String          @unique @map("rag_question_id")
   answer           String
   status           RagAnswerStatus @default(COMPLETED)
+  answerStatus     AnswerStatus    @default(DRAFT) @map("answer_status")
+  accessLevel      AccessLevel     @default(FREE) @map("access_level")
+  confidence       Float?
+  payload          Json            @default("{}")
   modelName        String?         @map("model_name")
   promptTokens     Int?            @map("prompt_tokens")
   completionTokens Int?            @map("completion_tokens")
@@ -336,10 +541,12 @@ model RagAnswer {
   createdAt        DateTime        @default(now()) @map("created_at")
   updatedAt        DateTime        @updatedAt @map("updated_at")
 
-  question RagQuestion       @relation(fields: [ragQuestionId], references: [id], onDelete: Cascade)
-  sources  RagAnswerSource[]
+  question  RagQuestion       @relation(fields: [ragQuestionId], references: [id], onDelete: Cascade)
+  sources   RagAnswerSource[]
+  feedbacks AnswerFeedback[]
 
   @@index([status])
+  @@index([answerStatus])
   @@map("rag_answers")
 }
 
@@ -351,6 +558,12 @@ model RagAnswerSource {
   chunkIndex      Int      @map("chunk_index")
   sourceTitle     String   @map("source_title")
   excerpt         String
+  documentVersion String?  @map("document_version")
+  concessionaire  String?
+  stateCode       String?  @map("state_code")
+  itemReference   String?  @map("item_reference")
+  tableReference  String?  @map("table_reference")
+  quotedText      String?  @map("quoted_text")
   relevanceScore  Float?   @map("relevance_score")
   metadata        Json     @default("{}")
   createdAt       DateTime @default(now()) @map("created_at")
@@ -362,6 +575,226 @@ model RagAnswerSource {
   @@index([documentChunkId])
   @@index([pageNumber])
   @@map("rag_answer_sources")
+}
+
+model ProductPlan {
+  id                String          @id @default(cuid())
+  code              String          @unique
+  name              String
+  description       String?
+  billingProduct    BillingProduct  @unique @map("billing_product")
+  priceCents        Int             @map("price_cents")
+  currency          String          @default("BRL")
+  interval          BillingInterval @default(NONE)
+  queryLimitMonthly Int?            @map("query_limit_monthly")
+  isActive          Boolean         @default(true) @map("is_active")
+  metadata          Json            @default("{}")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  subscriptions UserSubscription[]
+
+  @@index([isActive])
+  @@map("product_plans")
+}
+
+model UserSubscription {
+  id                     String             @id @default(cuid())
+  userId                 String?            @map("user_id")
+  companyId              String?            @map("company_id")
+  planId                 String             @map("plan_id")
+  status                 SubscriptionStatus @default(INCOMPLETE)
+  startedAt              DateTime?          @map("started_at")
+  currentPeriodStart     DateTime?          @map("current_period_start")
+  currentPeriodEnd       DateTime?          @map("current_period_end")
+  cancelAtPeriodEnd      Boolean            @default(false) @map("cancel_at_period_end")
+  externalProvider       String?            @map("external_provider")
+  externalCustomerId     String?            @map("external_customer_id")
+  externalSubscriptionId String?            @map("external_subscription_id")
+  metadata               Json               @default("{}")
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+
+  user    User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  company Company?    @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  plan    ProductPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([userId, status])
+  @@index([companyId, status])
+  @@index([planId])
+  @@index([externalProvider, externalSubscriptionId])
+  @@map("user_subscriptions")
+}
+
+model QueryCredit {
+  id        String            @id @default(cuid())
+  userId    String?           @map("user_id")
+  companyId String?           @map("company_id")
+  source    QueryCreditSource
+  quantity  Int
+  remaining Int
+  expiresAt DateTime?         @map("expires_at")
+  metadata  Json              @default("{}")
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([userId, remaining])
+  @@index([companyId, remaining])
+  @@index([expiresAt])
+  @@map("query_credits")
+}
+
+model PaidQueryPurchase {
+  id                String        @id @default(cuid())
+  userId            String?       @map("user_id")
+  companyId         String?       @map("company_id")
+  questionId        String?       @map("question_id")
+  amountCents       Int           @map("amount_cents")
+  currency          String        @default("BRL")
+  status            PaymentStatus @default(PENDING)
+  externalProvider  String?       @map("external_provider")
+  externalPaymentId String?       @map("external_payment_id")
+  metadata          Json          @default("{}")
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  user     User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  company  Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  question RagQuestion? @relation(fields: [questionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([companyId, status])
+  @@index([questionId])
+  @@index([externalProvider, externalPaymentId])
+  @@map("paid_query_purchases")
+}
+
+model TechnicalTable {
+  id                String           @id @default(cuid())
+  documentVersionId String           @map("document_version_id")
+  documentPageId    String?          @map("document_page_id")
+  title             String
+  tableNumber       String?          @map("table_number")
+  normalizedTitle   String           @map("normalized_title")
+  category          DocumentCategory
+  pageNumber        Int              @map("page_number")
+  itemReference     String?          @map("item_reference")
+  rawText           String?          @map("raw_text")
+  metadata          Json             @default("{}")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  documentVersion DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  documentPage    DocumentPage?   @relation(fields: [documentPageId], references: [id], onDelete: SetNull)
+  rows            TechnicalTableRow[]
+
+  @@index([documentVersionId])
+  @@index([documentPageId])
+  @@index([category])
+  @@index([pageNumber])
+  @@map("technical_tables")
+}
+
+model TechnicalTableRow {
+  id               String   @id @default(cuid())
+  technicalTableId String   @map("technical_table_id")
+  rowIndex         Int      @map("row_index")
+  data             Json
+  normalizedData   Json     @map("normalized_data")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  technicalTable TechnicalTable @relation(fields: [technicalTableId], references: [id], onDelete: Cascade)
+
+  @@unique([technicalTableId, rowIndex])
+  @@map("technical_table_rows")
+}
+
+model TechnicalAbacus {
+  id                String           @id @default(cuid())
+  documentVersionId String           @map("document_version_id")
+  documentPageId    String?          @map("document_page_id")
+  title             String
+  abacusNumber      String?          @map("abacus_number")
+  category          DocumentCategory
+  pageNumber        Int              @map("page_number")
+  itemReference     String?          @map("item_reference")
+  description       String?
+  rawText           String?          @map("raw_text")
+  metadata          Json             @default("{}")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  documentVersion DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  documentPage    DocumentPage?   @relation(fields: [documentPageId], references: [id], onDelete: SetNull)
+
+  @@index([documentVersionId])
+  @@index([documentPageId])
+  @@index([category])
+  @@index([pageNumber])
+  @@map("technical_abacuses")
+}
+
+model TechnicalRule {
+  id                  String                  @id @default(cuid())
+  sourceType          TechnicalRuleSourceType @map("source_type")
+  sourceId            String                  @map("source_id")
+  concessionaire      String?
+  stateCode           String?                 @map("state_code")
+  category            DocumentCategory
+  voltageLevel        String?                 @map("voltage_level")
+  application         String?
+  conditionJson       Json                    @map("condition_json")
+  resultJson          Json                    @map("result_json")
+  sourceDocumentTitle String?                 @map("source_document_title")
+  sourcePageNumber    Int?                    @map("source_page_number")
+  sourceItemReference String?                 @map("source_item_reference")
+  confidence          Float?
+  status              TechnicalRuleStatus     @default(DRAFT)
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+
+  @@index([sourceType, sourceId])
+  @@index([concessionaire, stateCode])
+  @@index([category])
+  @@index([status])
+  @@map("technical_rules")
+}
+
+model AnswerFeedback {
+  id                  String             @id @default(cuid())
+  answerId            String             @map("answer_id")
+  userId              String?            @map("user_id")
+  rating              Int?
+  feedbackType        AnswerFeedbackType @map("feedback_type")
+  comment             String?
+  suggestedCorrection String?            @map("suggested_correction")
+  createdAt           DateTime           @default(now()) @map("created_at")
+
+  answer RagAnswer @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  user   User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([answerId])
+  @@index([userId])
+  @@index([feedbackType])
+  @@map("answer_feedback")
+}
+
+model ValidatedAnswer {
+  id                String           @id @default(cuid())
+  questionPattern   String           @map("question_pattern")
+  normalizedQuestion String          @map("normalized_question")
+  answerPayload     Json             @map("answer_payload")
+  validatedByUserId String?          @map("validated_by_user_id")
+  validationStatus  ValidationStatus @default(DRAFT) @map("validation_status")
+  sourceIds         Json             @map("source_ids")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  validatedBy User? @relation("ValidatedAnswerReviewer", fields: [validatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([validationStatus])
+  @@index([validatedByUserId])
+  @@map("validated_answers")
 }
 
 model AuditLog {
