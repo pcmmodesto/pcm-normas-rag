@@ -1,5 +1,6 @@
 import type { QueryAudience, TechnicalIntent } from "./intent-classifier";
 import { INTENT_LABELS } from "./intent-classifier";
+import type { NormativeTableLookupResult, NormativeTableRowResult } from "./normative-table-lookup";
 
 export type AnswerType = "DIRECT" | "PARTIAL" | "INSUFFICIENT" | "NEEDS_CONTEXT";
 
@@ -221,7 +222,11 @@ function buildTechnicalAnswer(
   chunks: PassingChunk[],
   isSufficient: boolean,
   missingContext: string[],
+  structuredLookup?: NormativeTableLookupResult,
 ): BuiltAnswer {
+  const tableAnswer = buildNormativeTableAnswer(structuredLookup);
+  if (tableAnswer) return tableAnswer;
+
   const drawingAnswer = buildDrawingStructuredAnswer(intent, chunks);
   if (drawingAnswer) return drawingAnswer;
 
@@ -323,6 +328,91 @@ function buildTechnicalAnswer(
     answer,
     normativeSummary: normativeLines.join("\n\n"),
   };
+}
+
+function buildNormativeTableAnswer(
+  structuredLookup?: NormativeTableLookupResult,
+): BuiltAnswer | null {
+  if (!structuredLookup?.found || !structuredLookup.table || !structuredLookup.selectedRow) {
+    return null;
+  }
+
+  const table = structuredLookup.table;
+  const row = structuredLookup.selectedRow;
+  const loadRange = formatLoadRange(row);
+  const copperLines = formatCopperLines(row);
+  const aluminumLines = formatAluminumLines(row);
+  const phaseNeutral = formatPhaseNeutral(row);
+  const source = `${table.documentTitle} | ${table.versionLabel} | Tabela ${table.tableNumber ?? "-"} | Pag. ${table.pageNumber}`;
+
+  const answer = [
+    "Resposta direta - dimensionamento tecnico:",
+    "",
+    `Tabela usada: Tabela ${table.tableNumber ?? "-"} - ${table.title}.`,
+    `Fonte normativa utilizada: ${source}.`,
+    `Linha selecionada: ${row.supplyType ?? "-"}, faixa de carga ${loadRange}.`,
+    "",
+    `Disjuntor: ${row.breakerAmp ?? "-"} A${row.breakerType ? ` (${row.breakerType})` : ""}.`,
+    ...copperLines,
+    ...aluminumLines,
+    `Eletroduto de aco galvanizado: diametro nominal ${row.galvanizedSteelConduitInch ?? "-"} pol.`,
+    `Condutor minimo do cliente fase/neutro: ${phaseNeutral} mm2.`,
+    `Condutor de aterramento: ${formatNumber(row.groundingConductorMm2)} mm2.`,
+    `Eletroduto de aterramento: diametro nominal ${row.groundingConduitInch ?? "-"} pol.`,
+    row.notes ? `Observacao da linha: ${row.notes}.` : "",
+    structuredLookup.kvaKwNotice ? `Ressalva tecnica: ${structuredLookup.kvaKwNotice}` : "",
+  ].filter(Boolean).join("\n");
+
+  return {
+    answerType: "DIRECT",
+    confidence: 0.92,
+    answer,
+    normativeSummary: `[${source}]\n${row.rawText ?? structuredLookup.reason}`,
+  };
+}
+
+function formatLoadRange(row: NormativeTableRowResult) {
+  if (row.loadMinKw === null || row.loadMinKw === undefined) {
+    return `ate ${formatNumber(row.loadMaxKw)} kW`;
+  }
+  return `${formatNumber(row.loadMinKw)} a ${formatNumber(row.loadMaxKw)} kW`;
+}
+
+function formatCopperLines(row: NormativeTableRowResult) {
+  const lines: string[] = [];
+  if (row.copperConcentricMm2) {
+    lines.push(`Cabo de cobre concentrico: ${formatNumber(row.copperConcentricMm2)} mm2.`);
+  }
+  if (row.copperMultiplexedMm2) {
+    lines.push(`Cabo de cobre multiplexado: ${formatNumber(row.copperMultiplexedMm2)} mm2.`);
+  }
+  return lines;
+}
+
+function formatAluminumLines(row: NormativeTableRowResult) {
+  const lines: string[] = [];
+  if (row.aluminumDuplexMm2) {
+    lines.push(`Cabo de aluminio multiplexado duplex: ${formatNumber(row.aluminumDuplexMm2)} mm2.`);
+  }
+  if (row.aluminumTriplexMm2) {
+    lines.push(`Cabo de aluminio multiplexado triplex: ${formatNumber(row.aluminumTriplexMm2)} mm2.`);
+  }
+  if (row.aluminumQuadruplexMm2) {
+    lines.push(`Cabo de aluminio multiplexado quadruplex: ${formatNumber(row.aluminumQuadruplexMm2)} mm2.`);
+  }
+  return lines;
+}
+
+function formatPhaseNeutral(row: NormativeTableRowResult) {
+  if (row.supplyType === "TRIFASICO" && row.groundingConductorMm2) {
+    return `${formatNumber(row.customerPhaseNeutralConductorMm2)}(${formatNumber(row.groundingConductorMm2)})`;
+  }
+  return `${formatNumber(row.customerPhaseNeutralConductorMm2)}`;
+}
+
+function formatNumber(value: number | null | undefined) {
+  if (value === null || value === undefined) return "-";
+  return value.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
 }
 
 function buildDrawingStructuredAnswer(
@@ -454,12 +544,13 @@ export function buildStructuredAnswer(params: {
   chunks: PassingChunk[];
   isSufficient: boolean;
   missingContext: string[];
+  structuredLookup?: NormativeTableLookupResult;
 }): BuiltAnswer {
-  const { audience, intent, question, chunks, isSufficient, missingContext } = params;
+  const { audience, intent, question, chunks, isSufficient, missingContext, structuredLookup } = params;
 
   if (audience === "LEIGO_ATENDIMENTO" || audience === "NORMA_REFERENCIA") {
     return buildLaypersonAnswer(question, chunks, isSufficient);
   }
 
-  return buildTechnicalAnswer(intent, chunks, isSufficient, missingContext);
+  return buildTechnicalAnswer(intent, chunks, isSufficient, missingContext, structuredLookup);
 }

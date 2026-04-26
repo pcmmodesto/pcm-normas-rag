@@ -18,6 +18,7 @@ import {
 } from "@/features/rag/search/intent-classifier";
 import { scoreChunkDetailed, scoreChunkForLeigo } from "@/features/rag/search/chunk-scorer";
 import { buildStructuredAnswer } from "@/features/rag/search/answer-builder";
+import { lookupNormativeSizingTable } from "@/features/rag/search/normative-table-lookup";
 import { classifyQuestion } from "@/features/rag/lib/classify-question";
 
 export const runtime = "nodejs";
@@ -130,6 +131,7 @@ export async function POST(request: Request) {
     ]),
   );
   const keywords = extractKeywords(question);
+  const structuredLookup = await lookupNormativeSizingTable(technicalEntities);
 
   const isLeigo =
     (audience === "LEIGO_ATENDIMENTO" || audience === "NORMA_REFERENCIA") &&
@@ -177,7 +179,9 @@ export async function POST(request: Request) {
   const passing = (requiresStrongSource ? mainPassing : passingAll).slice(0, 3);
 
   const isSufficient =
-    passing.length > 0 && (!requiresStrongSource || hasStrongTechnicalSource);
+    structuredLookup.found ||
+    (passing.length > 0 && (!requiresStrongSource || hasStrongTechnicalSource));
+  const effectiveMissingContext = structuredLookup.found ? [] : missingContext;
 
   const { answerType, confidence, answer, normativeSummary } = buildStructuredAnswer({
     audience,
@@ -192,10 +196,49 @@ export async function POST(request: Request) {
       metadata: c.metadata,
     })),
     isSufficient,
-    missingContext,
+    missingContext: effectiveMissingContext,
+    structuredLookup,
   });
 
-  const sources = passing.map((c) => ({
+  const structuredSource = structuredLookup.found && structuredLookup.table && structuredLookup.selectedRow
+    ? [{
+        documentTitle: structuredLookup.table.documentTitle,
+        versionLabel: structuredLookup.table.versionLabel,
+        pageNumber: structuredLookup.table.pageNumber,
+        chunkIndex: structuredLookup.selectedRow.rowIndex,
+        chunkType: "NORMATIVE_TABLE_ROW",
+        pageType: "TABLE",
+        technicalIntent: "SERVICE_ENTRANCE_SIZING",
+        topic: `Tabela ${structuredLookup.table.tableNumber} - ${structuredLookup.table.title}`,
+        sourceQuality: "STRUCTURED_TABLE",
+        flags: {
+          isTable: true,
+          isFigure: false,
+          isSummary: false,
+          isCover: false,
+          isDefinition: false,
+          isRequirement: true,
+          isProcedure: false,
+          isSizingCriteria: true,
+        },
+        sectionNumber: null,
+        sectionTitle: null,
+        tableNumber: structuredLookup.table.tableNumber,
+        tableTitle: structuredLookup.table.title,
+        excerpt: structuredLookup.selectedRow.rawText ?? structuredLookup.reason,
+        concessionaire: structuredLookup.table.concessionaire,
+        stateCodes: structuredLookup.table.state ? structuredLookup.table.state.split(",") : [],
+        documentType: "NORMATIVE_TABLE",
+        metadata: {
+          mode: structuredLookup.mode,
+          selectedRow: structuredLookup.selectedRow,
+          kvaKwNotice: structuredLookup.kvaKwNotice,
+        },
+        score: 999,
+      }]
+    : [];
+
+  const sources = [...structuredSource, ...passing.map((c) => ({
     documentTitle: c.document_title,
     versionLabel: c.version_label,
     pageNumber: c.page_number,
@@ -228,7 +271,7 @@ export async function POST(request: Request) {
     documentType: c.document_type,
     metadata: c.metadata,
     score: c.score,
-  }));
+  }))];
 
   return NextResponse.json({
     ok: true,
@@ -242,7 +285,7 @@ export async function POST(request: Request) {
     isSufficient,
     answer,
     normativeSummary,
-    missingContext,
+    missingContext: effectiveMissingContext,
     termsSearched: searchTerms,
     technicalEntities,
     sources,
@@ -260,6 +303,7 @@ export async function POST(request: Request) {
             classificationMode: isLeigo ? "ATENDIMENTO" : "DIMENSIONAMENTO",
             keywords,
             technicalEntities,
+            structuredLookup,
             expandedTerms,
             searchTerms,
             minScore,

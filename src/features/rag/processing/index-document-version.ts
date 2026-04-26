@@ -3,12 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { smartChunkDocument } from "./smart-chunker";
 import { extractPdfText } from "./extract-pdf-text";
 import { classifyStructuredChunk } from "./classify-chunk";
+import { saveKnownNormativeTables } from "./normative-table-2";
 
 type VersionRow = {
   id: string;
   storage_path: string | null;
   metadata: Record<string, unknown>;
   version_label: string;
+  document_id: string;
   document_title: string;
   concessionaire: string | null;
   state_codes: string[] | null;
@@ -21,6 +23,7 @@ export async function indexDocumentVersion(documentVersionId: string) {
       dv.storage_path,
       dv.metadata,
       dv.version_label,
+      td.id as document_id,
       td.title as document_title,
       td.concessionaire,
       td.state_codes
@@ -67,6 +70,12 @@ export async function indexDocumentVersion(documentVersionId: string) {
   await ensureStructuredChunkSchema();
   await savePages(documentVersionId, pages);
   await saveChunks(documentVersionId, chunks);
+  await saveKnownNormativeTables(pages, {
+    documentVersionId,
+    documentId: version.document_id,
+    concessionaire: version.concessionaire,
+    stateCodes: version.state_codes,
+  });
 
   await prisma.$executeRaw`
     update document_versions

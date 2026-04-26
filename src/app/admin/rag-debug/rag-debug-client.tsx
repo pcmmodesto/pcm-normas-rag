@@ -47,6 +47,7 @@ type DebugInfo = {
   classificationMode?: string;
   keywords: string[];
   technicalEntities?: Record<string, unknown>;
+  structuredLookup?: StructuredLookup;
   expandedTerms?: ExpandedTerm[];
   searchTerms: string[];
   minScore: number;
@@ -55,6 +56,17 @@ type DebugInfo = {
   hasDimensioningTableOrCriteria?: boolean;
   candidateCount: number;
   candidates: Candidate[];
+};
+
+type StructuredLookup = {
+  mode: string;
+  attempted: boolean;
+  found: boolean;
+  reason: string;
+  table?: Record<string, unknown>;
+  selectedRow?: Record<string, unknown>;
+  candidateRows?: Record<string, unknown>[];
+  kvaKwNotice?: string;
 };
 
 type DebugResult = {
@@ -238,6 +250,10 @@ export function RagDebugClient() {
             </div>
           </div>
 
+          {debug.structuredLookup && (
+            <StructuredLookupPanel lookup={debug.structuredLookup} />
+          )}
+
           {mainChunks.length > 0 && (
             <div className="rounded-2xl border border-green-200 bg-green-50 p-5">
               <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-green-800">
@@ -297,6 +313,51 @@ export function RagDebugClient() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function StructuredLookupPanel({ lookup }: { lookup: StructuredLookup }) {
+  return (
+    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-blue-900">
+        Consulta estruturada em tabelas
+      </p>
+      <div className="grid gap-2 text-sm md:grid-cols-2 lg:grid-cols-4">
+        <Row label="Modo" value={lookup.mode} />
+        <Row label="Executada" value={lookup.attempted ? "sim" : "nao"} />
+        <Row label="Tabela encontrada" value={lookup.found ? "sim" : "nao"} />
+        <Row label="Motivo" value={lookup.reason} />
+      </div>
+      {lookup.kvaKwNotice && (
+        <p className="mt-3 rounded-lg bg-white px-3 py-2 text-sm text-blue-900">
+          {lookup.kvaKwNotice}
+        </p>
+      )}
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        {lookup.table && (
+          <JsonBox title="Tabela encontrada" value={lookup.table} />
+        )}
+        {lookup.selectedRow && (
+          <JsonBox title="Linha selecionada" value={lookup.selectedRow} />
+        )}
+      </div>
+      {lookup.candidateRows && lookup.candidateRows.length > 0 && (
+        <div className="mt-3">
+          <JsonBox title={`Linhas candidatas (${lookup.candidateRows.length})`} value={lookup.candidateRows} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function JsonBox({ title, value }: { title: string; value: unknown }) {
+  return (
+    <div className="rounded-lg border border-blue-100 bg-white p-3 text-xs text-slate-700">
+      <p className="mb-2 font-semibold text-blue-900">{title}</p>
+      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words">
+        {JSON.stringify(value, null, 2)}
+      </pre>
     </div>
   );
 }

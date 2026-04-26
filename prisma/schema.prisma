@@ -456,6 +456,7 @@ model DocumentVersion {
   pages      DocumentPage[]
   chunks     DocumentChunk[]
   tables     TechnicalTable[]
+  normativeTables NormativeTable[]
   abacos     TechnicalAbacus[]
 
   @@unique([documentId, versionLabel])
@@ -758,6 +759,66 @@ model TechnicalTableRow {
 
   @@unique([technicalTableId, rowIndex])
   @@map("technical_table_rows")
+}
+
+model NormativeTable {
+  id                String   @id @default(cuid())
+  documentVersionId String   @map("document_version_id")
+  documentId        String   @map("document_id")
+  tableNumber       String?  @map("table_number")
+  title             String
+  pageNumber        Int      @map("page_number")
+  concessionaire    String?
+  state             String?
+  voltage           String?
+  category          String?
+  sourceText        String?  @map("source_text")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  documentVersion DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  rows            NormativeTableRow[]
+
+  @@index([documentVersionId])
+  @@index([documentId])
+  @@index([tableNumber])
+  @@index([state, voltage])
+  @@map("normative_tables")
+}
+
+model NormativeTableRow {
+  id                              String   @id @default(cuid())
+  tableId                         String   @map("table_id")
+  rowIndex                        Int      @map("row_index")
+  method                          String?
+  supplyType                      String?  @map("supply_type")
+  loadMinKw                       Float?   @map("load_min_kw")
+  loadMaxKw                       Float?   @map("load_max_kw")
+  voltage                         String?
+  breakerAmp                      Int?     @map("breaker_amp")
+  breakerType                     String?  @map("breaker_type")
+  copperConcentricMm2             Float?   @map("copper_concentric_mm2")
+  copperMultiplexedMm2            Float?   @map("copper_multiplexed_mm2")
+  aluminumDuplexMm2               Float?   @map("aluminum_duplex_mm2")
+  aluminumTriplexMm2              Float?   @map("aluminum_triplex_mm2")
+  aluminumQuadruplexMm2           Float?   @map("aluminum_quadruplex_mm2")
+  galvanizedSteelConduitInch      String?  @map("galvanized_steel_conduit_inch")
+  customerPhaseNeutralConductorMm2 Float?  @map("customer_phase_neutral_conductor_mm2")
+  groundingConductorMm2           Float?   @map("grounding_conductor_mm2")
+  groundingConduitInch            String?  @map("grounding_conduit_inch")
+  notes                           String?
+  rawText                         String?  @map("raw_text")
+  pageNumber                      Int      @map("page_number")
+  createdAt                       DateTime @default(now()) @map("created_at")
+  updatedAt                       DateTime @updatedAt @map("updated_at")
+
+  table NormativeTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@unique([tableId, rowIndex])
+  @@index([tableId])
+  @@index([voltage, supplyType])
+  @@index([loadMinKw, loadMaxKw])
+  @@map("normative_table_rows")
 }
 
 model TechnicalAbacus {
