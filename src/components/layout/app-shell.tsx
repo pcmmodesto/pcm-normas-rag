@@ -128,9 +128,23 @@ export async function AdminShell({ children }: ShellProps) {
       <header className="border-b border-slate-200 bg-[#050B1F]">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <Brand />
-          <span className="rounded-full border border-[#D4AF37]/40 bg-[#D4AF37]/10 px-3 py-1 text-xs font-semibold text-[#F8E7A1]">
-            Admin interno
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-[#D4AF37]/40 bg-[#D4AF37]/10 px-3 py-1 text-xs font-semibold text-[#F8E7A1]">
+              Admin interno
+            </span>
+            <Link
+              className="rounded-xl border border-[#19A7E8]/40 bg-[#19A7E8]/10 px-3 py-1.5 text-xs font-semibold text-[#8EDBFF] transition hover:bg-[#19A7E8]/20"
+              href="/dashboard/chat"
+            >
+              Testar chat tecnico
+            </Link>
+            <Link
+              className="rounded-xl border border-slate-400/30 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-white/10"
+              href="/dashboard"
+            >
+              Area do cliente
+            </Link>
+          </div>
         </div>
       </header>
       <div className="mx-auto grid max-w-7xl gap-6 px-5 py-8 lg:grid-cols-[260px_1fr]">

@@ -12,12 +12,14 @@ export const adminNavigation = [
   { href: "/admin", label: "Visao geral" },
   { href: "/admin/upload", label: "Enviar norma" },
   { href: "/admin/documents", label: "Documentos" },
-  { href: "/admin/processing", label: "Processamento" },
+  { href: "/admin/processing", label: "Pipeline de documentos" },
   { href: "/admin/users", label: "Usuarios" },
   { href: "/admin/subscriptions", label: "Assinaturas" },
   { href: "/admin/finance", label: "Financeiro" },
   { href: "/admin/pdf-exports", label: "PDFs" },
   { href: "/admin/logs", label: "Auditoria" },
+  { href: "/dashboard/chat", label: "Testar chat tecnico" },
+  { href: "/dashboard", label: "Area do cliente" },
 ];
 
 export const dashboardNavigation = [
