@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role";
 
 export const runtime = "nodejs";
 
@@ -26,58 +27,83 @@ export async function DELETE(
   try {
     // Get storage paths before deletion
     const versions = await prisma.$queryRaw<
-      Array<{ storage_path: string | null; metadata: unknown }>
+      Array<{ id: string; storage_path: string | null; metadata: unknown }>
     >`
-      select storage_path, metadata
+      select id, storage_path, metadata
       from document_versions
       where document_id = ${id}
     `;
 
-    // Delete from DB in dependency order
-    await prisma.$executeRaw`
-      delete from document_chunks
-      where document_version_id in (
-        select id from document_versions where document_id = ${id}
-      )
-    `;
+    await prisma.$transaction(async (tx) => {
+      // Delete from DB in dependency order.
+      await tx.$executeRaw`
+        delete from technical_table_rows
+        where technical_table_id in (
+          select id from technical_tables
+          where document_version_id in (
+            select id from document_versions where document_id = ${id}
+          )
+        )
+      `;
 
-    await prisma.$executeRaw`
-      delete from document_pages
-      where document_version_id in (
-        select id from document_versions where document_id = ${id}
-      )
-    `;
+      await tx.$executeRaw`
+        delete from technical_tables
+        where document_version_id in (
+          select id from document_versions where document_id = ${id}
+        )
+      `;
 
-    await prisma.$executeRaw`
-      delete from document_versions where document_id = ${id}
-    `;
+      await tx.$executeRaw`
+        delete from technical_abacuses
+        where document_version_id in (
+          select id from document_versions where document_id = ${id}
+        )
+      `;
 
-    await prisma.$executeRaw`
-      delete from technical_documents where id = ${id}
-    `;
+      await tx.$executeRaw`
+        update rag_answer_sources
+        set document_chunk_id = null
+        where document_chunk_id in (
+          select id from document_chunks
+          where document_version_id in (
+            select id from document_versions where document_id = ${id}
+          )
+        )
+      `;
 
-    // Best-effort: delete from Supabase Storage
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      await tx.$executeRaw`
+        delete from document_chunks
+        where document_version_id in (
+          select id from document_versions where document_id = ${id}
+        )
+      `;
 
-    if (serviceRoleKey && supabaseUrl) {
-      for (const version of versions) {
-        if (!version.storage_path) continue;
-        const meta = version.metadata as Record<string, unknown> | null;
-        const bucket = (meta?.storageBucket as string | undefined) ?? "documents";
+      await tx.$executeRaw`
+        delete from document_pages
+        where document_version_id in (
+          select id from document_versions where document_id = ${id}
+        )
+      `;
 
-        await fetch(
-          `${supabaseUrl}/storage/v1/object/${bucket}/${version.storage_path}`,
-          {
-            method: "DELETE",
-            headers: { Authorization: `Bearer ${serviceRoleKey}` },
-          },
-        ).catch(() => undefined);
-      }
-    }
+      await tx.$executeRaw`
+        delete from document_versions where document_id = ${id}
+      `;
+
+      await tx.$executeRaw`
+        delete from technical_documents where id = ${id}
+      `;
+    });
+
+    await removeStorageObjectsBestEffort(versions);
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    console.error("[admin/documents/delete]", {
+      documentId: id,
+      message: error instanceof Error ? error.message : "Unknown error",
+      errorName: error instanceof Error ? error.name : typeof error,
+    });
+
     return NextResponse.json(
       {
         ok: false,
@@ -86,5 +112,41 @@ export async function DELETE(
       },
       { status: 500 },
     );
+  }
+}
+
+async function removeStorageObjectsBestEffort(
+  versions: Array<{ storage_path: string | null; metadata: unknown }>,
+) {
+  try {
+    const supabase = createSupabaseServiceRoleClient();
+
+    for (const version of versions) {
+      if (!version.storage_path) continue;
+
+      const meta = version.metadata as Record<string, unknown> | null;
+      const bucket =
+        (meta?.storageBucket as string | undefined) ??
+        process.env.SUPABASE_DOCUMENTS_BUCKET ??
+        "technical-documents";
+
+      const { error } = await supabase.storage
+        .from(bucket)
+        .remove([version.storage_path]);
+
+      if (error) {
+        console.error("[admin/documents/delete]", {
+          stage: "storage_cleanup",
+          bucket,
+          message: error.message,
+        });
+      }
+    }
+  } catch (error) {
+    console.error("[admin/documents/delete]", {
+      stage: "storage_cleanup",
+      message: error instanceof Error ? error.message : "Unknown error",
+      errorName: error instanceof Error ? error.name : typeof error,
+    });
   }
 }
