@@ -344,24 +344,49 @@ function buildNormativeTableAnswer(
   const aluminumLines = formatAluminumLines(row);
   const phaseNeutral = formatPhaseNeutral(row);
   const source = `${table.documentTitle} | ${table.versionLabel} | Tabela ${table.tableNumber ?? "-"} | Pag. ${table.pageNumber}`;
+  const directResult = [
+    `Para carga ${loadRange}`,
+    row.voltage ? `tensao ${row.voltage}` : null,
+    row.supplyType ? `fornecimento ${formatSupplyType(row.supplyType)}` : null,
+    `a tabela aplicavel indica disjuntor ${row.breakerAmp ?? "-"} A${row.breakerType ? ` (${row.breakerType})` : ""}`,
+    ...copperLines.map((line) => line.replace(/\.$/, "")),
+    ...aluminumLines.map((line) => line.replace(/\.$/, "")),
+    `eletroduto ${row.galvanizedSteelConduitInch ?? "-"} pol.`,
+    `aterramento ${formatNumber(row.groundingConductorMm2)} mm2`,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   const answer = [
-    "Resposta direta - dimensionamento tecnico:",
+    "Resposta direta:",
+    `${directResult}.`,
     "",
-    `Tabela usada: Tabela ${table.tableNumber ?? "-"} - ${table.title}.`,
-    `Fonte normativa utilizada: ${source}.`,
-    table.imageStoragePath ? `Imagem original associada: ${table.imageStoragePath}.` : "",
-    `Linha selecionada: ${row.supplyType ?? "-"}, faixa de carga ${loadRange}.`,
+    "Dados considerados:",
+    `Carga: ${loadRange}${structuredLookup.kvaKwNotice ? " (referencia em kW; ver observacao)" : ""}.`,
+    row.voltage ? `Tensao: ${row.voltage}.` : "",
+    row.supplyType ? `Tipo de fornecimento: ${formatSupplyType(row.supplyType)}.` : "",
     "",
+    "Resultado da linha:",
     `Disjuntor: ${row.breakerAmp ?? "-"} A${row.breakerType ? ` (${row.breakerType})` : ""}.`,
-    ...copperLines,
-    ...aluminumLines,
-    `Eletroduto de aco galvanizado: diametro nominal ${row.galvanizedSteelConduitInch ?? "-"} pol.`,
-    `Condutor minimo do cliente fase/neutro: ${phaseNeutral} mm2.`,
+    copperLines.length > 0 ? copperLines.join("\n") : "",
+    aluminumLines.length > 0 ? aluminumLines.join("\n") : "",
+    `Eletroduto: ${row.galvanizedSteelConduitInch ?? "-"} pol.`,
+    `Condutor fase/neutro do cliente: ${phaseNeutral} mm2.`,
     `Condutor de aterramento: ${formatNumber(row.groundingConductorMm2)} mm2.`,
-    `Eletroduto de aterramento: diametro nominal ${row.groundingConduitInch ?? "-"} pol.`,
-    row.notes ? `Observacao da linha: ${row.notes}.` : "",
-    structuredLookup.kvaKwNotice ? `Ressalva tecnica: ${structuredLookup.kvaKwNotice}` : "",
+    `Eletroduto de aterramento: ${row.groundingConduitInch ?? "-"} pol.`,
+    "",
+    "Fonte:",
+    `${table.documentTitle}, revisao ${table.versionLabel}, pagina ${table.pageNumber}, Tabela ${table.tableNumber ?? "-"}.`,
+    "",
+    "Linha usada:",
+    `${loadRange}, ${formatSupplyType(row.supplyType ?? "-")}, ${row.voltage ?? "-"}.`,
+    "",
+    "Imagem original:",
+    table.imageStoragePath ? `[ver tabela usada] ${table.imageStoragePath}` : "Imagem original ainda nao associada ao ativo normativo.",
+    "",
+    "Observacoes:",
+    structuredLookup.kvaKwNotice ?? "Resposta baseada na linha estruturada validada da tabela normativa.",
+    row.notes ? `Nota da linha: ${row.notes}.` : "",
   ].filter(Boolean).join("\n");
 
   return {
@@ -377,6 +402,14 @@ function formatLoadRange(row: NormativeTableRowResult) {
     return `ate ${formatNumber(row.loadMaxKw)} kW`;
   }
   return `${formatNumber(row.loadMinKw)} a ${formatNumber(row.loadMaxKw)} kW`;
+}
+
+function formatSupplyType(value: string) {
+  const normalized = value.toUpperCase();
+  if (normalized === "TRIFASICO") return "trifasico";
+  if (normalized === "BIFASICO") return "bifasico";
+  if (normalized === "MONOFASICO") return "monofasico";
+  return value;
 }
 
 function formatCopperLines(row: NormativeTableRowResult) {
