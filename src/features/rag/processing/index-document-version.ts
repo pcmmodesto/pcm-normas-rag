@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { smartChunkDocument } from "./smart-chunker";
 import { extractPdfText } from "./extract-pdf-text";
+import { classifyStructuredChunk } from "./classify-chunk";
 
 type VersionRow = {
   id: string;
@@ -127,7 +128,7 @@ async function savePages(
         ${documentVersionId},
         ${page.pageNumber},
         ${page.text},
-        ${{}}::jsonb,
+        ${JSON.stringify({})}::jsonb,
         now(),
         now()
       )
@@ -160,13 +161,18 @@ async function saveChunks(
     if (chunk.sectionNumber) metadata.sectionNumber = chunk.sectionNumber;
     if (chunk.tableNumber) metadata.tableNumber = chunk.tableNumber;
     if (chunk.tableTitle) metadata.tableTitle = chunk.tableTitle;
+    Object.assign(metadata, chunk.metadata ?? {});
+    const structured = classifyStructuredChunk(chunk);
 
     await prisma.$executeRaw`
       insert into document_chunks (
         id, document_version_id, document_page_id, page_number,
-        chunk_index, text, metadata,
+        chunk_index, text, normalized_text, metadata,
         chunk_type, section_number, section_title, parent_section_number,
-        table_number, table_title, is_searchable, is_low_value, search_text,
+        table_number, table_title, page_type, technical_intent, technical_terms,
+        voltage_level, topic, is_table, is_figure, is_summary, is_cover,
+        is_definition, is_requirement, is_procedure, is_sizing_criteria,
+        source_quality, is_searchable, is_low_value, search_text,
         created_at, updated_at
       )
       values (
@@ -176,6 +182,7 @@ async function saveChunks(
         ${chunk.pageNumber},
         ${chunk.chunkIndex},
         ${chunk.text},
+        ${structured.normalizedText},
         ${JSON.stringify(metadata)}::jsonb,
         ${chunk.chunkType}::"chunk_type",
         ${chunk.sectionNumber},
@@ -183,6 +190,20 @@ async function saveChunks(
         ${chunk.parentSectionNumber},
         ${chunk.tableNumber},
         ${chunk.tableTitle},
+        ${structured.pageType},
+        ${structured.technicalIntent},
+        ${structured.technicalTerms},
+        ${structured.voltageLevel},
+        ${structured.topic},
+        ${structured.isTable},
+        ${structured.isFigure},
+        ${structured.isSummary},
+        ${structured.isCover},
+        ${structured.isDefinition},
+        ${structured.isRequirement},
+        ${structured.isProcedure},
+        ${structured.isSizingCriteria},
+        ${structured.sourceQuality},
         ${chunk.isSearchable},
         ${chunk.isLowValue},
         ${chunk.searchText},
@@ -192,6 +213,7 @@ async function saveChunks(
       on conflict (document_version_id, chunk_index) do update
         set
           text = excluded.text,
+          normalized_text = excluded.normalized_text,
           metadata = excluded.metadata,
           chunk_type = excluded.chunk_type,
           section_number = excluded.section_number,
@@ -199,6 +221,20 @@ async function saveChunks(
           parent_section_number = excluded.parent_section_number,
           table_number = excluded.table_number,
           table_title = excluded.table_title,
+          page_type = excluded.page_type,
+          technical_intent = excluded.technical_intent,
+          technical_terms = excluded.technical_terms,
+          voltage_level = excluded.voltage_level,
+          topic = excluded.topic,
+          is_table = excluded.is_table,
+          is_figure = excluded.is_figure,
+          is_summary = excluded.is_summary,
+          is_cover = excluded.is_cover,
+          is_definition = excluded.is_definition,
+          is_requirement = excluded.is_requirement,
+          is_procedure = excluded.is_procedure,
+          is_sizing_criteria = excluded.is_sizing_criteria,
+          source_quality = excluded.source_quality,
           is_searchable = excluded.is_searchable,
           is_low_value = excluded.is_low_value,
           search_text = excluded.search_text,

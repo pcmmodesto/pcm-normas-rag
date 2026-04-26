@@ -22,6 +22,15 @@ const MIN_SCORE_LEIGO = 20;
 
 // Chunk types that get a score bonus in technical queries
 const TABLE_CHUNK_TYPES = new Set(["TABLE", "TABLE_ROW", "NORMATIVE_TABLE"]);
+const HIGH_VALUE_CHUNK_TYPES = new Set([
+  "REQUIREMENT",
+  "PROCEDURE",
+  "TABLE",
+  "TABLE_ROW",
+  "NORMATIVE_TABLE",
+  "NORMATIVE_DRAWING",
+  "NORMATIVE_NOTE",
+]);
 
 type ChunkRow = {
   chunk_id: string;
@@ -33,6 +42,18 @@ type ChunkRow = {
   section_title: string | null;
   table_number: string | null;
   table_title: string | null;
+  page_type: string | null;
+  technical_intent: string | null;
+  topic: string | null;
+  source_quality: string | null;
+  is_table: boolean;
+  is_figure: boolean;
+  is_summary: boolean;
+  is_cover: boolean;
+  is_definition: boolean;
+  is_requirement: boolean;
+  is_procedure: boolean;
+  is_sizing_criteria: boolean;
   document_title: string;
   version_label: string;
   concessionaire: string | null;
@@ -89,6 +110,8 @@ export async function POST(request: Request) {
       detail.reasons.push("+25: chunk de tabela estruturada");
     }
 
+    applyStructuredChunkScore(detail, chunk, isLeigo);
+
     return { ...chunk, ...detail };
   });
 
@@ -121,6 +144,20 @@ export async function POST(request: Request) {
     pageNumber: c.page_number,
     chunkIndex: c.chunk_index,
     chunkType: c.chunk_type,
+    pageType: c.page_type,
+    technicalIntent: c.technical_intent,
+    topic: c.topic,
+    sourceQuality: c.source_quality,
+    flags: {
+      isTable: c.is_table,
+      isFigure: c.is_figure,
+      isSummary: c.is_summary,
+      isCover: c.is_cover,
+      isDefinition: c.is_definition,
+      isRequirement: c.is_requirement,
+      isProcedure: c.is_procedure,
+      isSizingCriteria: c.is_sizing_criteria,
+    },
     sectionNumber: c.section_number,
     sectionTitle: c.section_title,
     tableNumber: c.table_number,
@@ -166,9 +203,23 @@ export async function POST(request: Request) {
               documentTitle: c.document_title,
               pageNumber: c.page_number,
               chunkType: c.chunk_type,
+              pageType: c.page_type,
+              technicalIntent: c.technical_intent,
+              topic: c.topic,
+              sourceQuality: c.source_quality,
               sectionNumber: c.section_number,
               sectionTitle: c.section_title,
               tableNumber: c.table_number,
+              flags: {
+                isTable: c.is_table,
+                isFigure: c.is_figure,
+                isSummary: c.is_summary,
+                isCover: c.is_cover,
+                isDefinition: c.is_definition,
+                isRequirement: c.is_requirement,
+                isProcedure: c.is_procedure,
+                isSizingCriteria: c.is_sizing_criteria,
+              },
               score: c.score,
               reasons: c.reasons,
               rejected: c.rejected,
@@ -204,6 +255,18 @@ async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {
         dc.section_title,
         dc.table_number,
         dc.table_title,
+        dc.page_type,
+        dc.technical_intent,
+        dc.topic,
+        dc.source_quality,
+        dc.is_table,
+        dc.is_figure,
+        dc.is_summary,
+        dc.is_cover,
+        dc.is_definition,
+        dc.is_requirement,
+        dc.is_procedure,
+        dc.is_sizing_criteria,
         td.title         as document_title,
         dv.version_label,
         td.concessionaire,
@@ -221,5 +284,60 @@ async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {
     `);
   } catch {
     return [];
+  }
+}
+
+function applyStructuredChunkScore(
+  detail: {
+    score: number;
+    reasons: string[];
+    rejected: boolean;
+    rejectionReason?: string;
+  },
+  chunk: ChunkRow,
+  isLeigo: boolean,
+) {
+  if (detail.rejected) return;
+
+  if (chunk.is_cover || chunk.is_summary || chunk.chunk_type === "SUMMARY") {
+    detail.score -= 80;
+    detail.reasons.push("-80: capa/sumario/indice");
+
+    if (!isLeigo) {
+      detail.rejected = true;
+      detail.rejectionReason = "Chunk de capa/sumario nao deve responder consulta tecnica.";
+    }
+
+    return;
+  }
+
+  if (chunk.chunk_type === "ADMINISTRATIVE" || chunk.source_quality === "LOW") {
+    detail.score -= 45;
+    detail.reasons.push("-45: chunk administrativo ou baixa qualidade");
+  }
+
+  if (!isLeigo && HIGH_VALUE_CHUNK_TYPES.has(chunk.chunk_type)) {
+    detail.score += 25;
+    detail.reasons.push("+25: tipo de chunk normativo de alto valor");
+  }
+
+  if (!isLeigo && chunk.is_requirement) {
+    detail.score += 20;
+    detail.reasons.push("+20: requisito normativo detectado");
+  }
+
+  if (!isLeigo && chunk.is_sizing_criteria) {
+    detail.score += 25;
+    detail.reasons.push("+25: criterio de dimensionamento detectado");
+  }
+
+  if (!isLeigo && chunk.is_figure) {
+    detail.score += 15;
+    detail.reasons.push("+15: desenho/figura tecnica");
+  }
+
+  if (!isLeigo && chunk.technical_intent) {
+    detail.score += 10;
+    detail.reasons.push(`+10: intencao tecnica ${chunk.technical_intent}`);
   }
 }

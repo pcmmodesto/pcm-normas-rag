@@ -338,6 +338,13 @@ export async function smartChunkDocument(
 
     allChunks.push(...pageChunks);
     globalIndex += pageChunks.length;
+
+    for (const chunk of pageChunks) {
+      chunk.metadata = {
+        ...(chunk.metadata ?? {}),
+        pageType,
+      };
+    }
   }
 
   // Re-assign sequential chunkIndex across all chunks
