@@ -545,7 +545,18 @@ export async function createNormativeAsset(params: {
   return id;
 }
 
-export async function ensureNormativeTableSchema() {
+// Memoize per module instance so repeated calls within one invocation are no-ops
+let _schemaPromise: Promise<void> | null = null;
+export function ensureNormativeTableSchema(): Promise<void> {
+  if (_schemaPromise) return _schemaPromise;
+  _schemaPromise = _runNormativeTableSchema().catch((err) => {
+    _schemaPromise = null; // allow retry on failure
+    throw err;
+  });
+  return _schemaPromise;
+}
+
+async function _runNormativeTableSchema() {
   await prisma.$executeRawUnsafe(`
     DO $$
     BEGIN
@@ -758,7 +769,7 @@ export async function ensureNormativeTableSchema() {
     );
   `);
 
-  for (const statement of [
+  await Promise.all([
     `CREATE INDEX IF NOT EXISTS normative_assets_document_version_id_idx ON normative_assets(document_version_id)`,
     `CREATE INDEX IF NOT EXISTS normative_assets_document_id_idx ON normative_assets(document_id)`,
     `CREATE INDEX IF NOT EXISTS normative_assets_type_idx ON normative_assets(type)`,
@@ -786,7 +797,5 @@ export async function ensureNormativeTableSchema() {
     `CREATE INDEX IF NOT EXISTS normative_notes_figure_id_idx ON normative_notes(figure_id)`,
     `CREATE INDEX IF NOT EXISTS normative_notes_note_type_idx ON normative_notes(note_type)`,
     `CREATE INDEX IF NOT EXISTS normative_notes_note_number_idx ON normative_notes(note_number)`,
-  ]) {
-    await prisma.$executeRawUnsafe(statement);
-  }
+  ].map((s) => prisma.$executeRawUnsafe(s)));
 }

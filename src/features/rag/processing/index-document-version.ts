@@ -51,7 +51,11 @@ export async function indexDocumentVersion(documentVersionId: string) {
     versionLabel: version.version_label,
   };
 
-  const pdfBytes = await downloadFromStorage(bucket, version.storage_path);
+  // Download PDF and migrate schema in parallel — both are independent
+  const [pdfBytes] = await Promise.all([
+    downloadFromStorage(bucket, version.storage_path),
+    ensureStructuredChunkSchema(),
+  ]);
 
   await prisma.$executeRaw`
     update document_versions
@@ -69,27 +73,22 @@ export async function indexDocumentVersion(documentVersionId: string) {
 
   const chunks = await smartChunkDocument(pages, docContext);
 
-  await ensureStructuredChunkSchema();
   await savePages(documentVersionId, pages);
   await saveChunks(documentVersionId, chunks);
-  await saveKnownNormativeTables(pages, {
+
+  const normCtx = {
     documentVersionId,
     documentId: version.document_id,
     concessionaire: version.concessionaire,
     stateCodes: version.state_codes,
-  });
-  await saveGenericNormativeTables(pages, {
-    documentVersionId,
-    documentId: version.document_id,
-    concessionaire: version.concessionaire,
-    stateCodes: version.state_codes,
-  });
-  await saveKnownNormativeFiguresAndNotes(pages, {
-    documentVersionId,
-    documentId: version.document_id,
-    concessionaire: version.concessionaire,
-    stateCodes: version.state_codes,
-  });
+  };
+
+  // All three normative saves write to independent tables — run in parallel
+  await Promise.all([
+    saveKnownNormativeTables(pages, normCtx),
+    saveGenericNormativeTables(pages, normCtx),
+    saveKnownNormativeFiguresAndNotes(pages, normCtx),
+  ]);
 
   await prisma.$executeRaw`
     update document_versions
@@ -199,15 +198,13 @@ async function ensureStructuredChunkSchema() {
       ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
   `);
 
-  for (const statement of [
+  await Promise.all([
     `CREATE INDEX IF NOT EXISTS "document_chunks_is_low_value_is_searchable_idx" ON "document_chunks"("is_low_value", "is_searchable")`,
     `CREATE INDEX IF NOT EXISTS "document_chunks_chunk_type_idx" ON "document_chunks"("chunk_type")`,
     `CREATE INDEX IF NOT EXISTS "document_chunks_page_type_idx" ON "document_chunks"("page_type")`,
     `CREATE INDEX IF NOT EXISTS "document_chunks_technical_intent_idx" ON "document_chunks"("technical_intent")`,
     `CREATE INDEX IF NOT EXISTS "document_chunks_topic_idx" ON "document_chunks"("topic")`,
-  ]) {
-    await prisma.$executeRawUnsafe(statement);
-  }
+  ].map((s) => prisma.$executeRawUnsafe(s)));
 }
 
 async function downloadFromStorage(
