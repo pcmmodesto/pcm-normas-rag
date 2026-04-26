@@ -2,15 +2,22 @@ import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
+  AUDIENCE_LABELS,
+  classifyQueryAudience,
   classifyTechnicalIntent,
+  detectMissingContext,
   extractKeywords,
   INTENT_LABELS,
   INTENT_REQUIRED_TERMS,
+  LEIGO_PRIORITY_TERMS,
   MIN_SCORE_BY_INTENT,
 } from "@/features/rag/search/intent-classifier";
-import { scoreChunkDetailed } from "@/features/rag/search/chunk-scorer";
+import { scoreChunkDetailed, scoreChunkForLeigo } from "@/features/rag/search/chunk-scorer";
+import { buildStructuredAnswer } from "@/features/rag/search/answer-builder";
 
 export const runtime = "nodejs";
+
+const MIN_SCORE_LEIGO = 20;
 
 type ChunkRow = {
   chunk_id: string;
@@ -47,74 +54,108 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, message: "Pergunta muito curta." }, { status: 400 });
   }
 
+  const audience = classifyQueryAudience(question);
   const intent = classifyTechnicalIntent(question);
+  const missingContext = detectMissingContext(question, audience);
   const keywords = extractKeywords(question);
-  const requiredTerms = INTENT_REQUIRED_TERMS[intent];
 
-  // Combine keywords with required terms for broader candidate retrieval
-  const searchTerms = Array.from(new Set([...keywords, ...requiredTerms])).slice(0, 14);
+  const isLeigo = audience === "LEIGO_ATENDIMENTO" || audience === "NORMA_REFERENCIA";
 
-  if (searchTerms.length === 0) {
-    return NextResponse.json({
-      ok: true,
-      insufficient: true,
-      intent,
-      intentLabel: INTENT_LABELS[intent],
-      termsSearched: [],
-      answer: buildInsufficientAnswer([]),
-      sources: [],
-    });
-  }
+  // Build search terms: keywords + audience-relevant required terms
+  const extraTerms = isLeigo
+    ? LEIGO_PRIORITY_TERMS.slice(0, 8)
+    : INTENT_REQUIRED_TERMS[intent];
+  const searchTerms = Array.from(new Set([...keywords, ...extraTerms])).slice(0, 14);
 
   const candidates = await fetchCandidates(searchTerms);
 
   const scored: ScoredChunk[] = candidates.map((chunk) => {
-    const detail = scoreChunkDetailed(chunk.chunk_text, intent, keywords, question);
+    const detail = isLeigo
+      ? scoreChunkForLeigo(chunk.chunk_text, keywords, question)
+      : scoreChunkDetailed(chunk.chunk_text, intent, keywords, question);
     return { ...chunk, ...detail };
   });
 
-  const minScore = MIN_SCORE_BY_INTENT[intent];
+  const minScore = isLeigo ? MIN_SCORE_LEIGO : MIN_SCORE_BY_INTENT[intent];
   const passing = scored
     .filter((c) => !c.rejected && c.score >= minScore)
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
 
-  if (passing.length === 0) {
-    return NextResponse.json({
-      ok: true,
-      insufficient: true,
-      intent,
-      intentLabel: INTENT_LABELS[intent],
-      termsSearched: searchTerms,
-      answer: buildInsufficientAnswer(searchTerms),
-      sources: [],
-      ...(debug ? { debugInfo: buildDebugInfo(intent, keywords, requiredTerms, searchTerms, scored) } : {}),
-    });
-  }
+  const isSufficient = passing.length > 0;
 
-  return NextResponse.json({
-    ok: true,
-    insufficient: false,
+  const { answerType, confidence, answer, normativeSummary } = buildStructuredAnswer({
+    audience,
     intent,
-    intentLabel: INTENT_LABELS[intent],
-    termsSearched: searchTerms,
-    answer: buildAnswer(question, intent, passing),
-    sources: passing.map((c) => ({
+    question,
+    chunks: passing.map((c) => ({
       documentTitle: c.document_title,
       versionLabel: c.version_label,
       pageNumber: c.page_number,
-      chunkIndex: c.chunk_index,
-      excerpt: c.chunk_text.slice(0, 500),
-      concessionaire: c.concessionaire,
-      stateCodes: c.state_codes ?? [],
-      documentType: c.document_type,
+      chunkText: c.chunk_text,
       score: c.score,
-    })).slice(0, 3),
-    ...(debug ? { debugInfo: buildDebugInfo(intent, keywords, requiredTerms, searchTerms, scored) } : {}),
+    })),
+    isSufficient,
+    missingContext,
+  });
+
+  const sources = passing.map((c) => ({
+    documentTitle: c.document_title,
+    versionLabel: c.version_label,
+    pageNumber: c.page_number,
+    chunkIndex: c.chunk_index,
+    excerpt: c.chunk_text
+      .replace(/NORMA T[EÉ]CNICA[\s\S]*?DOCUMENTO N[AÃ]O CONTROLADO\s*/g, "")
+      .trim()
+      .slice(0, 500),
+    concessionaire: c.concessionaire,
+    stateCodes: c.state_codes ?? [],
+    documentType: c.document_type,
+    score: c.score,
+  }));
+
+  return NextResponse.json({
+    ok: true,
+    intent,
+    intentLabel: INTENT_LABELS[intent],
+    audience,
+    audienceLabel: AUDIENCE_LABELS[audience],
+    answerType,
+    confidence,
+    isSufficient,
+    answer,
+    normativeSummary,
+    missingContext,
+    termsSearched: searchTerms,
+    sources,
+    ...(debug
+      ? {
+          debugInfo: {
+            intent,
+            audience,
+            keywords,
+            searchTerms,
+            minScore,
+            candidateCount: scored.length,
+            candidates: scored.map((c) => ({
+              chunkId: c.chunk_id,
+              documentTitle: c.document_title,
+              pageNumber: c.page_number,
+              score: c.score,
+              reasons: c.reasons,
+              rejected: c.rejected,
+              rejectionReason: c.rejectionReason,
+              textPreview: c.chunk_text.slice(0, 200),
+            })),
+          },
+        }
+      : {}),
   });
 }
 
 async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {
+  if (searchTerms.length === 0) return [];
+
   const conditions = Prisma.join(
     searchTerms.map((k) => Prisma.sql`lower(dc.text) like ${`%${k}%`}`),
     " or ",
@@ -143,79 +184,4 @@ async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {
   } catch {
     return [];
   }
-}
-
-function buildAnswer(question: string, intent: ReturnType<typeof classifyTechnicalIntent>, chunks: ScoredChunk[]): string {
-  void question;
-  const sources = [...new Set(chunks.map((c) => c.document_title))];
-  const lines: string[] = [
-    `Resposta tecnica — ${INTENT_LABELS[intent]}:`,
-    "",
-    "Com base nos documentos normativos indexados, os seguintes trechos sao tecnicamente relevantes para sua consulta:",
-    "",
-  ];
-
-  for (const chunk of chunks) {
-    lines.push(
-      `[${chunk.document_title} | ${chunk.version_label} | Pag. ${chunk.page_number}]`,
-    );
-    lines.push(chunk.chunk_text.slice(0, 500));
-    lines.push("");
-  }
-
-  lines.push(`Fontes normativas: ${sources.join("; ")}.`);
-  lines.push("");
-  lines.push(
-    "Esta resposta e baseada exclusivamente nos documentos indexados na base normativa. Para analise tecnica completa, consulte os documentos originais.",
-  );
-
-  return lines.join("\n");
-}
-
-function buildInsufficientAnswer(terms: string[]): string {
-  const lines: string[] = [
-    "Base normativa insuficiente.",
-    "",
-    "Nao foram encontrados trechos tecnicamente relevantes para esta consulta na base de documentos indexados.",
-  ];
-
-  if (terms.length > 0) {
-    lines.push("");
-    lines.push(`Termos pesquisados: ${terms.join(", ")}.`);
-  }
-
-  lines.push("");
-  lines.push(
-    "Sugestoes: reformule a pergunta com termos mais especificos (ex.: bitola, ramal de entrada, padrao de entrada, mm², kVA). Verifique se os documentos normativos relevantes ja foram processados na base.",
-  );
-
-  return lines.join("\n");
-}
-
-function buildDebugInfo(
-  intent: ReturnType<typeof classifyTechnicalIntent>,
-  keywords: string[],
-  requiredTerms: string[],
-  searchTerms: string[],
-  scored: ScoredChunk[],
-) {
-  return {
-    intent,
-    intentLabel: INTENT_LABELS[intent],
-    keywords,
-    requiredTerms,
-    searchTerms,
-    minScore: MIN_SCORE_BY_INTENT[intent],
-    candidateCount: scored.length,
-    candidates: scored.map((c) => ({
-      chunkId: c.chunk_id,
-      documentTitle: c.document_title,
-      pageNumber: c.page_number,
-      score: c.score,
-      reasons: c.reasons,
-      rejected: c.rejected,
-      rejectionReason: c.rejectionReason,
-      textPreview: c.chunk_text.slice(0, 200),
-    })),
-  };
 }

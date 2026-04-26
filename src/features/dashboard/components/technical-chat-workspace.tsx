@@ -14,13 +14,21 @@ type Source = {
   score?: number;
 };
 
+type AnswerType = "DIRECT" | "PARTIAL" | "INSUFFICIENT" | "NEEDS_CONTEXT";
+
 type QueryResult = {
   ok: boolean;
-  insufficient?: boolean;
   intent?: string;
   intentLabel?: string;
-  termsSearched?: string[];
+  audience?: string;
+  audienceLabel?: string;
+  answerType?: AnswerType;
+  confidence?: number;
+  isSufficient?: boolean;
   answer: string;
+  normativeSummary?: string;
+  missingContext?: string[];
+  termsSearched?: string[];
   sources: Source[];
   message?: string;
 };
@@ -31,10 +39,39 @@ const EXAMPLE_QUESTIONS = [
   "Como deve ser o padrao de entrada para media tensao?",
 ];
 
+const ANSWER_TYPE_CONFIG: Record<
+  AnswerType,
+  { label: string; bg: string; text: string; border: string }
+> = {
+  DIRECT: {
+    label: "Resposta direta",
+    bg: "bg-green-50",
+    text: "text-green-800",
+    border: "border-green-200",
+  },
+  PARTIAL: {
+    label: "Resposta parcial",
+    bg: "bg-amber-50",
+    text: "text-amber-800",
+    border: "border-amber-200",
+  },
+  INSUFFICIENT: {
+    label: "Base insuficiente",
+    bg: "bg-red-50",
+    text: "text-red-800",
+    border: "border-red-200",
+  },
+  NEEDS_CONTEXT: {
+    label: "Precisa de contexto",
+    bg: "bg-blue-50",
+    text: "text-blue-800",
+    border: "border-blue-200",
+  },
+};
+
 export function TechnicalChatWorkspace() {
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
-  const [lastQuestion, setLastQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +87,6 @@ export function TechnicalChatWorkspace() {
     setLoading(true);
     setError(null);
     setResult(null);
-    setLastQuestion(trimmed);
 
     try {
       const response = await fetch("/api/rag/query", {
@@ -82,11 +118,13 @@ export function TechnicalChatWorkspace() {
     setResult(null);
     setError(null);
     setQuestion("");
-    setLastQuestion("");
   }
+
+  const answerConfig = result?.answerType ? ANSWER_TYPE_CONFIG[result.answerType] : null;
 
   return (
     <div className="space-y-5">
+      {/* Input card */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -132,7 +170,7 @@ export function TechnicalChatWorkspace() {
             className="min-h-28 w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-[#0F172A] outline-none transition placeholder:text-slate-400 focus:border-[#19A7E8] focus:ring-4 focus:ring-[#19A7E8]/10"
             disabled={loading}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ex.: Qual cabo para ramal de entrada trifasico considerando a concessionaria e tensao de atendimento?"
+            placeholder="Ex.: Como solicitar ligacao nova em Altamira PA? Qual a bitola do ramal de entrada trifasico?"
             value={question}
           />
           <div className="mt-3 flex items-center justify-between gap-3">
@@ -158,69 +196,80 @@ export function TechnicalChatWorkspace() {
 
       {result && (
         <div className="space-y-4">
-          {/* Intent badge */}
-          {result.intentLabel && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-[#E0F2FE] px-3 py-1 text-xs font-semibold text-[#075985]">
+          {/* Classification badges */}
+          <div className="flex flex-wrap items-center gap-2">
+            {answerConfig && (
+              <span
+                className={`rounded-full border px-3 py-1 text-xs font-semibold ${answerConfig.bg} ${answerConfig.text} ${answerConfig.border}`}
+              >
+                {answerConfig.label}
+              </span>
+            )}
+            {result.audienceLabel && (
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                {result.audienceLabel}
+              </span>
+            )}
+            {result.intentLabel && result.audience === "TECNICO_DIMENSIONAMENTO" && (
+              <span className="rounded-full bg-[#E0F2FE] px-3 py-1 text-xs font-medium text-[#075985]">
                 {result.intentLabel}
               </span>
-              {result.termsSearched && result.termsSearched.length > 0 && (
-                <span className="text-xs text-slate-500">
-                  Termos buscados: {result.termsSearched.join(", ")}
-                </span>
-              )}
+            )}
+          </div>
+
+          {/* Partial warning banner */}
+          {result.answerType === "PARTIAL" && result.isSufficient && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              A base atual nao trouxe item direto suficiente. A orientacao abaixo e geral.
             </div>
           )}
 
-          {/* Insufficient — short, direct */}
-          {result.insufficient && (
-            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-5 py-5 space-y-3">
-              <p className="font-semibold text-amber-900">
-                Nao encontrei na base normativa atual uma tabela ou item especifico suficiente para responder com seguranca.
-              </p>
-
-              <div className="space-y-1 text-sm text-amber-800">
-                {lastQuestion && (
-                  <p>
-                    <span className="font-medium">Pergunta:</span> {lastQuestion}
-                  </p>
-                )}
-                {result.intentLabel && (
-                  <p>
-                    <span className="font-medium">Intencao detectada:</span> {result.intentLabel}
-                  </p>
-                )}
-                {result.termsSearched && result.termsSearched.length > 0 && (
-                  <p>
-                    <span className="font-medium">Termos buscados:</span>{" "}
-                    {result.termsSearched.join(", ")}
-                  </p>
-                )}
-              </div>
-
-              <p className="text-xs text-amber-700 border-t border-amber-200 pt-3">
-                Envie e processe a norma complementar ou refine a pergunta com: tensao, tipo de ligacao (mono/bi/trifasica), concessionaria e carga em kVA.
-              </p>
+          {/* Missing context */}
+          {result.missingContext && result.missingContext.length > 0 && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              <p className="font-semibold mb-1">Para melhorar a resposta, informe tambem:</p>
+              <ul className="list-disc list-inside space-y-0.5">
+                {result.missingContext.map((ctx, i) => (
+                  <li key={i}>{ctx}</li>
+                ))}
+              </ul>
             </div>
           )}
 
-          {/* Answer — only when not insufficient */}
-          {!result.insufficient && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#123C7C]">
-                Resposta
+          {/* Main answer */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#123C7C]">
+              Resposta
+            </p>
+            <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-[#0F172A]">
+              {result.answer}
+            </pre>
+          </div>
+
+          {/* Normative summary — only when found and not in main answer already */}
+          {result.normativeSummary && result.normativeSummary.trim().length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                O que a norma indica
               </p>
-              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-[#0F172A]">
-                {result.answer}
+              <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-slate-600">
+                {result.normativeSummary}
               </pre>
             </div>
+          )}
+
+          {/* Terms searched (collapsible info) */}
+          {result.termsSearched && result.termsSearched.length > 0 && (
+            <p className="text-xs text-slate-400">
+              Termos buscados: {result.termsSearched.join(", ")}
+            </p>
           )}
 
           {/* Sources */}
           {result.sources.length > 0 && (
             <div className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Fontes ({result.sources.length})
+                Fontes utilizadas ({result.sources.length})
               </p>
               {result.sources.map((source, i) => (
                 <SourceCard key={i} source={source} />
@@ -237,27 +286,27 @@ function SourceCard({ source }: { source: Source }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="font-medium text-[#0F172A] text-sm">{source.documentTitle}</span>
-        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
           {source.versionLabel}
         </span>
         <span className="rounded-full bg-[#E0F2FE] px-2 py-0.5 text-xs text-[#075985]">
           Pag. {source.pageNumber}
         </span>
         {source.concessionaire && (
-          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
             {source.concessionaire}
           </span>
         )}
         {source.stateCodes.length > 0 && (
-          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
             {source.stateCodes.join(", ")}
           </span>
         )}
       </div>
-      <p className={`text-xs leading-relaxed text-slate-600 ${expanded ? "" : "line-clamp-4"}`}>
+      <p className={`text-xs leading-relaxed text-slate-600 ${expanded ? "" : "line-clamp-3"}`}>
         {source.excerpt}
       </p>
       <button

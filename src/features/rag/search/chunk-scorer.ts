@@ -1,4 +1,8 @@
-import { INTENT_REQUIRED_TERMS } from "./intent-classifier";
+import {
+  INTENT_REQUIRED_TERMS,
+  LEIGO_OFF_TOPIC_TERMS,
+  LEIGO_PRIORITY_TERMS,
+} from "./intent-classifier";
 import type { TechnicalIntent } from "./intent-classifier";
 
 // Intents that require a strict technical gate before scoring
@@ -254,4 +258,82 @@ export function scoreChunk(
   originalQuestion: string,
 ): number {
   return scoreChunkDetailed(chunkText, intent, questionKeywords, originalQuestion).score;
+}
+
+export function scoreChunkForLeigo(
+  chunkText: string,
+  questionKeywords: string[],
+  originalQuestion: string,
+): ChunkScoreDetail {
+  const reasons: string[] = [];
+
+  if (isLowValueNormativeChunk(chunkText)) {
+    return {
+      score: -60,
+      reasons: ["-60: secao administrativa"],
+      rejected: true,
+      rejectionReason: "Secao administrativa — campo de aplicacao / definicoes / responsabilidades",
+    };
+  }
+
+  const normalized = normalize(chunkText);
+  const normalizedQuestion = normalize(originalQuestion);
+  let score = 0;
+
+  // Hard penalty: off-topic technical content
+  for (const term of LEIGO_OFF_TOPIC_TERMS) {
+    if (normalized.includes(normalize(term))) {
+      score -= 40;
+      reasons.push(`-40: conteudo fora de topico "${term}"`);
+    }
+  }
+
+  // Check exact phrase
+  let hasExactPhrase = false;
+  const phrases = extractSignificantPhrases(normalizedQuestion);
+  for (const phrase of phrases) {
+    if (normalized.includes(phrase)) {
+      score += 40;
+      reasons.push(`+40: frase exata "${phrase}"`);
+      hasExactPhrase = true;
+      break;
+    }
+  }
+
+  // Gate: must have at least 1 service/connection term (unless exact phrase found)
+  const serviceTermsFound = LEIGO_PRIORITY_TERMS.filter((t) =>
+    normalized.includes(normalize(t)),
+  );
+
+  if (serviceTermsFound.length === 0 && !hasExactPhrase) {
+    return {
+      score: -20,
+      reasons: [...reasons, "Sem termo de atendimento/servico"],
+      rejected: true,
+      rejectionReason: "Conteudo nao relacionado a solicitacao de ligacao ou atendimento",
+    };
+  }
+
+  // +25 per service term found
+  for (const term of serviceTermsFound) {
+    score += 25;
+    reasons.push(`+25: termo de servico "${term}"`);
+    if (score >= 100) break; // cap
+  }
+
+  // +5 per keyword
+  for (const kw of questionKeywords) {
+    if (normalized.includes(normalize(kw))) {
+      score += 5;
+      reasons.push(`+5: keyword "${kw}"`);
+    }
+  }
+
+  const rejected = score < 0;
+  return {
+    score,
+    reasons,
+    rejected,
+    rejectionReason: rejected ? "Score negativo apos penalidades" : undefined,
+  };
 }
