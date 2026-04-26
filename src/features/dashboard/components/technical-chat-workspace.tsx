@@ -34,6 +34,7 @@ const EXAMPLE_QUESTIONS = [
 export function TechnicalChatWorkspace() {
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
+  const [lastQuestion, setLastQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +50,7 @@ export function TechnicalChatWorkspace() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setLastQuestion(trimmed);
 
     try {
       const response = await fetch("/api/rag/query", {
@@ -76,6 +78,13 @@ export function TechnicalChatWorkspace() {
     void runQuery(example);
   }
 
+  function handleClear() {
+    setResult(null);
+    setError(null);
+    setQuestion("");
+    setLastQuestion("");
+  }
+
   return (
     <div className="space-y-5">
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -88,9 +97,20 @@ export function TechnicalChatWorkspace() {
               Consulta na base normativa real
             </h2>
           </div>
-          <span className="rounded-full bg-[#E0F2FE] px-3 py-1 text-xs font-semibold text-[#075985]">
-            Base normativa ativa
-          </span>
+          <div className="flex items-center gap-2">
+            {(result || error) && (
+              <button
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                onClick={handleClear}
+                type="button"
+              >
+                Limpar
+              </button>
+            )}
+            <span className="rounded-full bg-[#E0F2FE] px-3 py-1 text-xs font-semibold text-[#075985]">
+              Base normativa ativa
+            </span>
+          </div>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -138,7 +158,7 @@ export function TechnicalChatWorkspace() {
 
       {result && (
         <div className="space-y-4">
-          {/* Intent + terms badge */}
+          {/* Intent badge */}
           {result.intentLabel && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-[#E0F2FE] px-3 py-1 text-xs font-semibold text-[#075985]">
@@ -146,32 +166,45 @@ export function TechnicalChatWorkspace() {
               </span>
               {result.termsSearched && result.termsSearched.length > 0 && (
                 <span className="text-xs text-slate-500">
-                  Termos: {result.termsSearched.join(", ")}
+                  Termos buscados: {result.termsSearched.join(", ")}
                 </span>
               )}
             </div>
           )}
 
-          {/* Insufficient warning — prominent */}
+          {/* Insufficient — short, direct */}
           {result.insufficient && (
-            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-5 py-5">
-              <p className="mb-1 font-semibold text-amber-900">
-                Base normativa insuficiente
+            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-5 py-5 space-y-3">
+              <p className="font-semibold text-amber-900">
+                Nao encontrei na base normativa atual uma tabela ou item especifico suficiente para responder com seguranca.
               </p>
-              <p className="text-sm text-amber-800">
-                Nao foram encontrados trechos tecnicamente relevantes para esta consulta nos
-                documentos indexados. Verifique se as normas aplicaveis ja foram enviadas e
-                processadas, ou reformule a pergunta com termos mais especificos.
+
+              <div className="space-y-1 text-sm text-amber-800">
+                {lastQuestion && (
+                  <p>
+                    <span className="font-medium">Pergunta:</span> {lastQuestion}
+                  </p>
+                )}
+                {result.intentLabel && (
+                  <p>
+                    <span className="font-medium">Intencao detectada:</span> {result.intentLabel}
+                  </p>
+                )}
+                {result.termsSearched && result.termsSearched.length > 0 && (
+                  <p>
+                    <span className="font-medium">Termos buscados:</span>{" "}
+                    {result.termsSearched.join(", ")}
+                  </p>
+                )}
+              </div>
+
+              <p className="text-xs text-amber-700 border-t border-amber-200 pt-3">
+                Envie e processe a norma complementar ou refine a pergunta com: tensao, tipo de ligacao (mono/bi/trifasica), concessionaria e carga em kVA.
               </p>
-              {result.termsSearched && result.termsSearched.length > 0 && (
-                <p className="mt-3 text-xs text-amber-700">
-                  Termos pesquisados: {result.termsSearched.join(", ")}
-                </p>
-              )}
             </div>
           )}
 
-          {/* Answer */}
+          {/* Answer — only when not insufficient */}
           {!result.insufficient && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#123C7C]">
@@ -189,7 +222,7 @@ export function TechnicalChatWorkspace() {
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Fontes ({result.sources.length})
               </p>
-              {result.sources.slice(0, 5).map((source, i) => (
+              {result.sources.map((source, i) => (
                 <SourceCard key={i} source={source} />
               ))}
             </div>

@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { adminQuery } from "@/features/admin/lib/admin-database";
 import { getAdminDocumentVersions } from "@/features/admin/lib/admin-documents";
+import { DeleteDocumentButton } from "@/features/documents/components/delete-document-button";
 import { ProcessDocumentButton } from "@/features/documents/components/process-document-button";
 
 export const dynamic = "force-dynamic";
@@ -78,7 +79,13 @@ export default async function AdminProcessingPage() {
                           "Aguardando processamento. Extração real ainda nao conectada."}
                       </td>
                       <td className="whitespace-nowrap px-4 py-4">
-                        <ProcessDocumentButton versionId={version.id} />
+                        <div className="flex gap-2">
+                          <ProcessDocumentButton versionId={version.id} />
+                          <DeleteDocumentButton
+                            documentId={version.documentId}
+                            documentTitle={version.documentTitle}
+                          />
+                        </div>
                       </td>
                     </tr>
                   ))}

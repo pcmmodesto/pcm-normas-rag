@@ -77,7 +77,7 @@ export async function POST(request: Request) {
   const passing = scored
     .filter((c) => !c.rejected && c.score >= minScore)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+    .slice(0, 3);
 
   if (passing.length === 0) {
     return NextResponse.json({
@@ -109,7 +109,7 @@ export async function POST(request: Request) {
       stateCodes: c.state_codes ?? [],
       documentType: c.document_type,
       score: c.score,
-    })),
+    })).slice(0, 3),
     ...(debug ? { debugInfo: buildDebugInfo(intent, keywords, requiredTerms, searchTerms, scored) } : {}),
   });
 }

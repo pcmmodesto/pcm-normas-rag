@@ -11,7 +11,8 @@
       "Bash(bash -c 'git status --porcelain | grep -q . && echo \"has changes\" || echo \"clean\"')",
       "Bash(node -e \"const s = require\\('fs'\\).readFileSync\\('.claude/settings.local.json','utf8'\\); const j = JSON.parse\\(s\\); console.log\\(j.hooks.Stop[0].hooks[0].command\\);\")",
       "Bash(node -e ' *)",
-      "Bash(vercel --version)"
+      "Bash(vercel --version)",
+      "Bash(git push *)"
     ]
   }
 }

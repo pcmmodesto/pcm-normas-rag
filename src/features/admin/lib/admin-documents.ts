@@ -85,6 +85,7 @@ export async function getAdminDocuments(limit = 50): Promise<AdminDocumentRow[]>
 
 export type AdminDocumentVersionRow = {
   id: string;
+  documentId: string;
   documentTitle: string;
   versionLabel: string;
   status: string;
@@ -97,6 +98,7 @@ export type AdminDocumentVersionRow = {
 
 type AdminDocumentVersionSqlRow = {
   id: string;
+  document_id: string;
   document_title: string;
   version_label: string;
   status: string;
@@ -111,6 +113,7 @@ export async function getAdminDocumentVersions(limit = 50) {
   const rows = await prisma.$queryRaw<AdminDocumentVersionSqlRow[]>`
     select
       v.id,
+      v.document_id,
       d.title as document_title,
       v.version_label,
       v.status,
@@ -127,6 +130,7 @@ export async function getAdminDocumentVersions(limit = 50) {
 
   return rows.map((row) => ({
     id: row.id,
+    documentId: row.document_id,
     documentTitle: row.document_title,
     versionLabel: row.version_label,
     status: row.status,
