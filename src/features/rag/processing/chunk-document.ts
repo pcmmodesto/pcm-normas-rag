@@ -7,7 +7,35 @@ export type DocumentChunkDraft = {
   sectionTitle?: string;
   itemReference?: string;
   tableReference?: string;
+  isTableLike?: boolean;
+  hasElectricalValues?: boolean;
+  hasCableSizingTerms?: boolean;
+  hasServiceEntranceTerms?: boolean;
 };
+
+function detectIsTableLike(text: string): boolean {
+  const lines = text.split("\n");
+  const multicolumn = lines.filter((l) => /\s{3,}/.test(l) || l.includes("\t")).length;
+  return (
+    /tabela\s*\d+/i.test(text) ||
+    /\d+\s*mm[²2]/i.test(text) ||
+    multicolumn >= 3
+  );
+}
+
+function detectHasElectricalValues(text: string): boolean {
+  return /\d+\s*(kva|kw|mm[²2]|kv|mva|awg)/i.test(text);
+}
+
+function detectHasCableSizingTerms(text: string): boolean {
+  return /(bitola|seção|secao|condutor|mm[²2]|awg|cabos?\s+de\s+\d)/i.test(text);
+}
+
+function detectHasServiceEntranceTerms(text: string): boolean {
+  return /(ramal\s+de\s+entrada|padrão\s+de\s+entrada|padrao\s+de\s+entrada|caixa\s+de\s+medição|medidor|entrada\s+de\s+energia)/i.test(
+    text,
+  );
+}
 
 const MAX_CHUNK_CHARS = 900;
 const MIN_CHUNK_CHARS = 80;
@@ -27,6 +55,18 @@ export async function chunkDocument(
   return chunks;
 }
 
+function buildChunk(text: string, pageNumber: number, chunkIndex: number): DocumentChunkDraft {
+  return {
+    pageNumber,
+    chunkIndex,
+    text,
+    isTableLike: detectIsTableLike(text),
+    hasElectricalValues: detectHasElectricalValues(text),
+    hasCableSizingTerms: detectHasCableSizingTerms(text),
+    hasServiceEntranceTerms: detectHasServiceEntranceTerms(text),
+  };
+}
+
 function splitPageIntoChunks(
   text: string,
   pageNumber: number,
@@ -37,7 +77,7 @@ function splitPageIntoChunks(
   if (cleaned.length === 0) return [];
 
   if (cleaned.length <= MAX_CHUNK_CHARS) {
-    return [{ pageNumber, chunkIndex: startIndex, text: cleaned }];
+    return [buildChunk(cleaned, pageNumber, startIndex)];
   }
 
   const paragraphs = cleaned.split(/\n{2,}/);
@@ -50,7 +90,7 @@ function splitPageIntoChunks(
     if (!trimmed) continue;
 
     if (buffer.length + trimmed.length + 2 > MAX_CHUNK_CHARS && buffer.length >= MIN_CHUNK_CHARS) {
-      chunks.push({ pageNumber, chunkIndex: idx++, text: buffer.trim() });
+      chunks.push(buildChunk(buffer.trim(), pageNumber, idx++));
       buffer = trimmed;
     } else {
       buffer = buffer ? `${buffer}\n\n${trimmed}` : trimmed;
@@ -58,12 +98,12 @@ function splitPageIntoChunks(
   }
 
   if (buffer.trim().length >= MIN_CHUNK_CHARS) {
-    chunks.push({ pageNumber, chunkIndex: idx++, text: buffer.trim() });
+    chunks.push(buildChunk(buffer.trim(), pageNumber, idx++));
   } else if (buffer.trim().length > 0 && chunks.length > 0) {
     const last = chunks[chunks.length - 1];
     last.text = `${last.text}\n\n${buffer.trim()}`;
   } else if (buffer.trim().length > 0) {
-    chunks.push({ pageNumber, chunkIndex: idx++, text: buffer.trim() });
+    chunks.push(buildChunk(buffer.trim(), pageNumber, idx++));
   }
 
   return chunks;

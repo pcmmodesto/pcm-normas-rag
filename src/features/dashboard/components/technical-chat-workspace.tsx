@@ -11,10 +11,15 @@ type Source = {
   concessionaire: string | null;
   stateCodes: string[];
   documentType: string;
+  score?: number;
 };
 
 type QueryResult = {
   ok: boolean;
+  insufficient?: boolean;
+  intent?: string;
+  intentLabel?: string;
+  termsSearched?: string[];
   answer: string;
   sources: Source[];
   message?: string;
@@ -133,60 +138,102 @@ export function TechnicalChatWorkspace() {
 
       {result && (
         <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#123C7C]">
-              Resposta
-            </p>
-            <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-[#0F172A]">
-              {result.answer}
-            </pre>
-          </div>
+          {/* Intent + terms badge */}
+          {result.intentLabel && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-[#E0F2FE] px-3 py-1 text-xs font-semibold text-[#075985]">
+                {result.intentLabel}
+              </span>
+              {result.termsSearched && result.termsSearched.length > 0 && (
+                <span className="text-xs text-slate-500">
+                  Termos: {result.termsSearched.join(", ")}
+                </span>
+              )}
+            </div>
+          )}
 
-          {result.sources.length > 0 ? (
+          {/* Insufficient warning — prominent */}
+          {result.insufficient && (
+            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-5 py-5">
+              <p className="mb-1 font-semibold text-amber-900">
+                Base normativa insuficiente
+              </p>
+              <p className="text-sm text-amber-800">
+                Nao foram encontrados trechos tecnicamente relevantes para esta consulta nos
+                documentos indexados. Verifique se as normas aplicaveis ja foram enviadas e
+                processadas, ou reformule a pergunta com termos mais especificos.
+              </p>
+              {result.termsSearched && result.termsSearched.length > 0 && (
+                <p className="mt-3 text-xs text-amber-700">
+                  Termos pesquisados: {result.termsSearched.join(", ")}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Answer */}
+          {!result.insufficient && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#123C7C]">
+                Resposta
+              </p>
+              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-[#0F172A]">
+                {result.answer}
+              </pre>
+            </div>
+          )}
+
+          {/* Sources */}
+          {result.sources.length > 0 && (
             <div className="space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Fontes ({result.sources.length})
               </p>
-              {result.sources.map((source, i) => (
-                <div
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                  key={i}
-                >
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-[#0F172A] text-sm">
-                      {source.documentTitle}
-                    </span>
-                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">
-                      {source.versionLabel}
-                    </span>
-                    <span className="rounded-full bg-[#E0F2FE] px-2 py-0.5 text-xs text-[#075985]">
-                      Pag. {source.pageNumber}
-                    </span>
-                    {source.concessionaire && (
-                      <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">
-                        {source.concessionaire}
-                      </span>
-                    )}
-                    {source.stateCodes.length > 0 && (
-                      <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">
-                        {source.stateCodes.join(", ")}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs leading-relaxed text-slate-600 line-clamp-4">
-                    {source.excerpt}
-                  </p>
-                </div>
+              {result.sources.slice(0, 5).map((source, i) => (
+                <SourceCard key={i} source={source} />
               ))}
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
-              Nao foram encontradas fontes normativas suficientes para esta
-              consulta. A base pode ainda nao conter documentos sobre este tema.
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function SourceCard({ source }: { source: Source }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="font-medium text-[#0F172A] text-sm">{source.documentTitle}</span>
+        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">
+          {source.versionLabel}
+        </span>
+        <span className="rounded-full bg-[#E0F2FE] px-2 py-0.5 text-xs text-[#075985]">
+          Pag. {source.pageNumber}
+        </span>
+        {source.concessionaire && (
+          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">
+            {source.concessionaire}
+          </span>
+        )}
+        {source.stateCodes.length > 0 && (
+          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">
+            {source.stateCodes.join(", ")}
+          </span>
+        )}
+      </div>
+      <p className={`text-xs leading-relaxed text-slate-600 ${expanded ? "" : "line-clamp-4"}`}>
+        {source.excerpt}
+      </p>
+      <button
+        className="mt-1.5 text-xs text-[#19A7E8] hover:underline"
+        onClick={() => setExpanded((v) => !v)}
+        type="button"
+      >
+        {expanded ? "Recolher trecho" : "Ver trecho usado"}
+      </button>
     </div>
   );
 }
