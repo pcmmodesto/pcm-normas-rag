@@ -34,65 +34,70 @@ export async function DELETE(
       where document_id = ${id}
     `;
 
-    await prisma.$transaction(async (tx) => {
-      // Delete from DB in dependency order.
-      await tx.$executeRaw`
-        delete from technical_table_rows
-        where technical_table_id in (
-          select id from technical_tables
-          where document_version_id in (
-            select id from document_versions where document_id = ${id}
-          )
-        )
-      `;
-
-      await tx.$executeRaw`
-        delete from technical_tables
+    // Production may be one migration behind. Each optional cleanup is isolated
+    // so a missing future RAG table/column does not block deleting the document.
+    await safeDeleteStep("technical_table_rows", () => prisma.$executeRaw`
+      delete from technical_table_rows
+      where technical_table_id in (
+        select id from technical_tables
         where document_version_id in (
           select id from document_versions where document_id = ${id}
         )
-      `;
+      )
+    `);
 
-      await tx.$executeRaw`
-        delete from technical_abacuses
+    await safeDeleteStep("technical_tables", () => prisma.$executeRaw`
+      delete from technical_tables
+      where document_version_id in (
+        select id from document_versions where document_id = ${id}
+      )
+    `);
+
+    await safeDeleteStep("technical_abacuses", () => prisma.$executeRaw`
+      delete from technical_abacuses
+      where document_version_id in (
+        select id from document_versions where document_id = ${id}
+      )
+    `);
+
+    await safeDeleteStep("rag_answer_sources", () => prisma.$executeRaw`
+      update rag_answer_sources
+      set document_chunk_id = null
+      where document_chunk_id in (
+        select id from document_chunks
         where document_version_id in (
           select id from document_versions where document_id = ${id}
         )
-      `;
+      )
+    `);
 
-      await tx.$executeRaw`
-        update rag_answer_sources
-        set document_chunk_id = null
-        where document_chunk_id in (
-          select id from document_chunks
-          where document_version_id in (
-            select id from document_versions where document_id = ${id}
-          )
-        )
-      `;
+    await safeDeleteStep("rag_questions", () => prisma.$executeRaw`
+      update rag_questions
+      set technical_document_id = null
+      where technical_document_id = ${id}
+    `);
 
-      await tx.$executeRaw`
-        delete from document_chunks
-        where document_version_id in (
-          select id from document_versions where document_id = ${id}
-        )
-      `;
+    await safeDeleteStep("document_chunks", () => prisma.$executeRaw`
+      delete from document_chunks
+      where document_version_id in (
+        select id from document_versions where document_id = ${id}
+      )
+    `);
 
-      await tx.$executeRaw`
-        delete from document_pages
-        where document_version_id in (
-          select id from document_versions where document_id = ${id}
-        )
-      `;
+    await safeDeleteStep("document_pages", () => prisma.$executeRaw`
+      delete from document_pages
+      where document_version_id in (
+        select id from document_versions where document_id = ${id}
+      )
+    `);
 
-      await tx.$executeRaw`
-        delete from document_versions where document_id = ${id}
-      `;
+    await prisma.$executeRaw`
+      delete from document_versions where document_id = ${id}
+    `;
 
-      await tx.$executeRaw`
-        delete from technical_documents where id = ${id}
-      `;
-    });
+    await prisma.$executeRaw`
+      delete from technical_documents where id = ${id}
+    `;
 
     await removeStorageObjectsBestEffort(versions);
 
@@ -112,6 +117,34 @@ export async function DELETE(
       },
       { status: 500 },
     );
+  }
+}
+
+async function safeDeleteStep(
+  stage: string,
+  operation: () => Promise<unknown>,
+) {
+  try {
+    await operation();
+  } catch (error) {
+    const code =
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      typeof (error as { code?: unknown }).code === "string"
+        ? (error as { code: string }).code
+        : undefined;
+
+    if (code === "42P01" || code === "42703" || code === "P2010") {
+      console.warn("[admin/documents/delete]", {
+        stage,
+        message: "Optional cleanup skipped because schema is partially migrated.",
+        code,
+      });
+      return;
+    }
+
+    throw error;
   }
 }
 
