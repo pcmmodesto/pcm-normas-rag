@@ -16,7 +16,8 @@
       "Bash(vercel ls *)",
       "Bash(vercel whoami *)",
       "Bash(vercel link *)",
-      "Bash(vercel --prod)"
+      "Bash(vercel --prod)",
+      "Bash(npx tsc *)"
     ]
   }
 }
