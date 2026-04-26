@@ -12,7 +12,11 @@
       "Bash(node -e \"const s = require\\('fs'\\).readFileSync\\('.claude/settings.local.json','utf8'\\); const j = JSON.parse\\(s\\); console.log\\(j.hooks.Stop[0].hooks[0].command\\);\")",
       "Bash(node -e ' *)",
       "Bash(vercel --version)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(vercel ls *)",
+      "Bash(vercel whoami *)",
+      "Bash(vercel link *)",
+      "Bash(vercel --prod)"
     ]
   }
 }
