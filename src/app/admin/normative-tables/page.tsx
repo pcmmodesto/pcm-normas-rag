@@ -3,7 +3,10 @@ import { AdminWarning } from "@/components/ui/admin-warning";
 import { DashboardSection } from "@/components/ui/dashboard-section";
 import { PageHeader } from "@/components/ui/page-header";
 import { adminQuery } from "@/features/admin/lib/admin-database";
-import { getAdminNormativeTables } from "@/features/admin/lib/normative-structures";
+import {
+  getAdminNormativeFigures,
+  getAdminNormativeTables,
+} from "@/features/admin/lib/normative-structures";
 import { NormativeTablesClient } from "./normative-tables-client";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +17,18 @@ export default async function AdminNormativeTablesPage() {
     () => getAdminNormativeTables(30),
     [],
   );
+  const figures = await adminQuery(
+    "admin normative figures",
+    () => getAdminNormativeFigures(60),
+    [],
+  );
+  const warningDetails: string[] = [];
+  if (!tables.ok) {
+    warningDetails.push(`Consulta ${tables.errorName} (${tables.errorCode}). Veja o Runtime Log da Vercel.`);
+  }
+  if (!figures.ok) {
+    warningDetails.push(`Consulta ${figures.errorName} (${figures.errorCode}). Veja o Runtime Log da Vercel.`);
+  }
 
   return (
     <AdminShell>
@@ -25,16 +40,13 @@ export default async function AdminNormativeTablesPage() {
         />
         <AdminWarning
           title="A consulta de tabelas estruturadas encontrou um problema"
-          details={
-            tables.ok
-              ? []
-              : [
-                  `Consulta ${tables.errorName} (${tables.errorCode}). Veja o Runtime Log da Vercel.`,
-                ]
-          }
+          details={warningDetails}
         />
         <DashboardSection title="Tabelas extraidas e importadas">
-          <NormativeTablesClient initialTables={tables.data} />
+          <NormativeTablesClient
+            initialFigures={figures.data}
+            initialTables={tables.data}
+          />
         </DashboardSection>
       </div>
     </AdminShell>

@@ -2,9 +2,13 @@
 
 import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { AdminNormativeTable } from "@/features/admin/lib/normative-structures";
+import type {
+  AdminNormativeFigure,
+  AdminNormativeTable,
+} from "@/features/admin/lib/normative-structures";
 
 type Props = {
+  initialFigures: AdminNormativeFigure[];
   initialTables: AdminNormativeTable[];
 };
 
@@ -16,7 +20,8 @@ type RowEditValues = {
   groundingConductorMm2: string;
 };
 
-export function NormativeTablesClient({ initialTables }: Props) {
+export function NormativeTablesClient({ initialFigures, initialTables }: Props) {
+  const [figures] = useState(initialFigures);
   const [tables, setTables] = useState(initialTables);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -186,6 +191,74 @@ export function NormativeTablesClient({ initialTables }: Props) {
           </section>
         ))
       )}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#123C7C]">
+            Desenhos, legendas e notas estruturadas
+          </p>
+          <h2 className="mt-1 text-lg font-semibold text-[#0F172A]">
+            Figuras normativas extraidas
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Conferencia dos desenhos, itens de legenda, responsabilidades e notas detectadas no processamento.
+          </p>
+        </div>
+        {figures.length === 0 ? (
+          <p className="text-sm text-slate-500">Nenhum desenho estruturado encontrado.</p>
+        ) : (
+          <div className="grid gap-3">
+            {figures.map((figure) => (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4" key={figure.id}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-[#0F172A]">{figure.title}</span>
+                  <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
+                    Pag. {figure.pageNumber}
+                  </span>
+                  {figure.relatedTableNumber && (
+                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                      Tabela {figure.relatedTableNumber}
+                    </span>
+                  )}
+                  <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
+                    {figure.itemCount} itens
+                  </span>
+                  <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
+                    {figure.noteCount} notas
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {figure.documentTitle} | {figure.versionLabel}
+                </p>
+                {figure.concessionaireItems.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                      Itens da concessionaria
+                    </p>
+                    <ul className="mt-1 grid gap-1 text-xs text-slate-700 md:grid-cols-2">
+                      {figure.concessionaireItems.slice(0, 8).map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {figure.notes.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">
+                      Notas
+                    </p>
+                    <ul className="mt-1 space-y-1 text-xs text-slate-700">
+                      {figure.notes.slice(0, 4).map((note) => (
+                        <li key={note}>{note}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

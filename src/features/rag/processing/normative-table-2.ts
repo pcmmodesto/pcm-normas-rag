@@ -233,6 +233,10 @@ export async function saveKnownNormativeFiguresAndNotes(
     delete from normative_figures
     where document_version_id = ${context.documentVersionId}
   `;
+  await prisma.$executeRaw`
+    delete from normative_notes
+    where document_version_id = ${context.documentVersionId}
+  `;
 
   const groups = new Map<string, Array<{ page: ExtractedPdfPage; structure: ReturnType<typeof detectDrawingStructure> }>>();
 

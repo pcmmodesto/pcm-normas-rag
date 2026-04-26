@@ -45,6 +45,21 @@ export type AdminNormativeTable = {
   rows: AdminNormativeTableRow[];
 };
 
+export type AdminNormativeFigure = {
+  id: string;
+  documentTitle: string;
+  versionLabel: string;
+  figureNumber: string | null;
+  title: string;
+  pageNumber: number;
+  figureType: string | null;
+  relatedTableNumber: string | null;
+  itemCount: number;
+  noteCount: number;
+  concessionaireItems: string[];
+  notes: string[];
+};
+
 type TableSqlRow = {
   id: string;
   document_title: string;
@@ -86,6 +101,21 @@ type RowSqlRow = {
   notes: string | null;
   raw_text: string | null;
   page_number: number;
+};
+
+type FigureSqlRow = {
+  id: string;
+  document_title: string;
+  version_label: string;
+  figure_number: string | null;
+  title: string;
+  page_number: number;
+  figure_type: string | null;
+  related_table_number: string | null;
+  item_count: number;
+  note_count: number;
+  concessionaire_items: string[] | null;
+  notes: string[] | null;
 };
 
 export async function getAdminNormativeTables(limit = 20): Promise<AdminNormativeTable[]> {
@@ -150,6 +180,49 @@ export async function getAdminNormativeTables(limit = 20): Promise<AdminNormativ
     validatedAt: table.validated_at,
     rowCount: table.row_count,
     rows: (rowsByTable.get(table.id) ?? []).map(mapRow),
+  }));
+}
+
+export async function getAdminNormativeFigures(limit = 40): Promise<AdminNormativeFigure[]> {
+  await ensureNormativeTableSchema();
+
+  const rows = await prisma.$queryRaw<FigureSqlRow[]>`
+    select
+      nf.id,
+      td.title as document_title,
+      dv.version_label,
+      nf.figure_number,
+      nf.title,
+      nf.page_number,
+      nf.figure_type,
+      nf.related_table_number,
+      count(distinct nfi.id)::int as item_count,
+      count(distinct nn.id)::int as note_count,
+      array_remove(array_agg(distinct nfi.item_code || ' - ' || nfi.description) filter (where nfi.responsibility = 'CONCESSIONARIA'), null) as concessionaire_items,
+      array_remove(array_agg(distinct coalesce('Nota ' || nn.note_number || ': ', '') || nn.text), null) as notes
+    from normative_figures nf
+    join document_versions dv on dv.id = nf.document_version_id
+    join technical_documents td on td.id = dv.document_id
+    left join normative_figure_items nfi on nfi.figure_id = nf.id
+    left join normative_notes nn on nn.figure_id = nf.id
+    group by nf.id, td.title, dv.version_label
+    order by nf.page_number asc
+    limit ${limit}
+  `;
+
+  return rows.map((row) => ({
+    id: row.id,
+    documentTitle: row.document_title,
+    versionLabel: row.version_label,
+    figureNumber: row.figure_number,
+    title: row.title,
+    pageNumber: row.page_number,
+    figureType: row.figure_type,
+    relatedTableNumber: row.related_table_number,
+    itemCount: row.item_count,
+    noteCount: row.note_count,
+    concessionaireItems: row.concessionaire_items ?? [],
+    notes: row.notes ?? [],
   }));
 }
 

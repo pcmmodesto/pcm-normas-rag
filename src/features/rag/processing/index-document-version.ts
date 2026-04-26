@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { smartChunkDocument } from "./smart-chunker";
 import { extractPdfText } from "./extract-pdf-text";
 import { classifyStructuredChunk } from "./classify-chunk";
+import { saveGenericNormativeTables } from "./normative-generic-structure";
 import { saveKnownNormativeFiguresAndNotes, saveKnownNormativeTables } from "./normative-table-2";
 
 type VersionRow = {
@@ -71,6 +72,12 @@ export async function indexDocumentVersion(documentVersionId: string) {
   await savePages(documentVersionId, pages);
   await saveChunks(documentVersionId, chunks);
   await saveKnownNormativeTables(pages, {
+    documentVersionId,
+    documentId: version.document_id,
+    concessionaire: version.concessionaire,
+    stateCodes: version.state_codes,
+  });
+  await saveGenericNormativeTables(pages, {
     documentVersionId,
     documentId: version.document_id,
     concessionaire: version.concessionaire,
