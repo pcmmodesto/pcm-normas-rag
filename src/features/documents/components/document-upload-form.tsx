@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import {
   BRAZILIAN_STATES,
   DOCUMENT_TYPE_OPTIONS,
@@ -18,6 +19,17 @@ type UploadResult = {
     title: string;
     versionId: string;
   };
+  error?: string;
+};
+
+type PrepareUploadResult = {
+  ok: boolean;
+  success?: boolean;
+  bucket?: string;
+  storagePath?: string;
+  token?: string;
+  uploadSession?: string;
+  message?: string;
   error?: string;
 };
 
@@ -54,20 +66,76 @@ export function DocumentUploadForm() {
       return;
     }
 
+    if (!selectedFile) {
+      setError("Selecione um arquivo PDF.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("/api/documents/upload", {
+      const prepareResponse = await fetch("/api/documents/upload/prepare", {
         method: "POST",
-        body: formData,
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(buildPreparePayload(formData, selectedFile)),
       });
-      const result = (await response.json()) as UploadResult;
+      const prepareResult =
+        await readJsonResponse<PrepareUploadResult>(prepareResponse);
 
-      if (!response.ok || !result.ok || !result.document) {
+      if (
+        !prepareResponse.ok ||
+        !prepareResult.ok ||
+        !prepareResult.bucket ||
+        !prepareResult.storagePath ||
+        !prepareResult.token ||
+        !prepareResult.uploadSession
+      ) {
+        setError(
+          prepareResult.message ??
+            prepareResult.error ??
+            "Nao foi possivel preparar o envio do PDF.",
+        );
+        return;
+      }
+
+      const supabase = createSupabaseBrowserClient();
+      const { error: uploadError } = await supabase.storage
+        .from(prepareResult.bucket)
+        .uploadToSignedUrl(
+          prepareResult.storagePath,
+          prepareResult.token,
+          selectedFile,
+          {
+            contentType: selectedFile.type || "application/pdf",
+          },
+        );
+
+      if (uploadError) {
+        setError(
+          uploadError.message ||
+            "Nao foi possivel enviar o PDF ao Supabase Storage.",
+        );
+        return;
+      }
+
+      const completeResponse = await fetch("/api/documents/upload/complete", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          uploadSession: prepareResult.uploadSession,
+        }),
+      });
+      const result = await readJsonResponse<UploadResult>(completeResponse);
+
+      if (!completeResponse.ok || !result.ok || !result.document) {
         setError(
           result.message ??
             result.error ??
-            "Nao foi possivel enviar o documento.",
+            "PDF enviado, mas o cadastro do documento falhou.",
         );
         return;
       }
@@ -77,8 +145,12 @@ export function DocumentUploadForm() {
       );
       form.reset();
       setSelectedFile(null);
-    } catch {
-      setError("Falha de comunicacao ao enviar o PDF. Tente novamente.");
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Falha de comunicacao ao enviar o PDF. Tente novamente.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -237,6 +309,43 @@ export function DocumentUploadForm() {
       </button>
     </form>
   );
+}
+
+function buildPreparePayload(formData: FormData, file: File) {
+  return {
+    title: String(formData.get("title") ?? ""),
+    concessionaire: String(formData.get("concessionaire") ?? ""),
+    state: String(formData.get("state") ?? ""),
+    documentType: String(formData.get("documentType") ?? ""),
+    versionLabel: String(formData.get("versionLabel") ?? ""),
+    publishedAt: String(formData.get("publishedAt") ?? ""),
+    description: String(formData.get("description") ?? ""),
+    tags: String(formData.get("tags") ?? ""),
+    fileName: file.name,
+    fileSizeBytes: file.size,
+    mimeType: file.type || "application/pdf",
+  };
+}
+
+async function readJsonResponse<T extends { message?: string; error?: string }>(
+  response: Response,
+) {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    return (await response.json()) as T;
+  }
+
+  const text = await response.text().catch(() => "");
+  const fallbackMessage =
+    response.status === 413
+      ? "O PDF excedeu o limite aceito pela plataforma. Use o envio direto ao Storage."
+      : text.slice(0, 180) || "Resposta inesperada do servidor.";
+
+  return {
+    message: fallbackMessage,
+    error: fallbackMessage,
+  } as T;
 }
 
 function validateClientForm(formData: FormData, file: File | null) {
