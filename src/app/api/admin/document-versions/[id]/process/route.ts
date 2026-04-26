@@ -38,11 +38,13 @@ export async function POST(
       where id = ${id}
     `;
 
-    await indexDocumentVersion(id);
+    const result = await indexDocumentVersion(id);
 
     return NextResponse.json({
       ok: true,
-      message: "Documento enviado para processamento.",
+      message: "Documento processado com chunks estruturados.",
+      pages: result.pages,
+      chunks: result.chunks,
     });
   } catch (error) {
     await markVersionAsFailed(id, error);

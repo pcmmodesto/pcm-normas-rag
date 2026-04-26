@@ -23,14 +23,16 @@ export default async function AdminProcessingPage() {
         <PageHeader
           eyebrow="Processamento"
           title="Pipeline de documentos"
-          description="Status real das versoes cadastradas. Extracao de texto, chunks e embeddings ainda serao conectados."
+          description="Status real das versoes cadastradas. Extracao de texto e chunking normativo ja rodam no servidor; embeddings entram em etapa futura."
         />
         <AdminWarning
           title="A fila de processamento encontrou um problema"
           details={
             versions.ok
               ? []
-              : [`Consulta ${versions.errorName} (${versions.errorCode}). Veja o Runtime Log da Vercel.`]
+              : [
+                  `Consulta ${versions.errorName} (${versions.errorCode}). Veja o Runtime Log da Vercel.`,
+                ]
           }
         />
         <DashboardSection title="Fila de processamento">
@@ -64,7 +66,9 @@ export default async function AdminProcessingPage() {
                       <td className="whitespace-nowrap px-4 py-4">
                         {version.versionLabel}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-4">{version.status}</td>
+                      <td className="whitespace-nowrap px-4 py-4">
+                        {version.status}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-4">
                         {version.processingStatus}
                       </td>
@@ -76,7 +80,7 @@ export default async function AdminProcessingPage() {
                       </td>
                       <td className="max-w-sm px-4 py-4">
                         {version.processingError ??
-                          "Aguardando processamento. Extração real ainda nao conectada."}
+                          "Aguardando processamento com extracao de texto e chunks estruturados."}
                       </td>
                       <td className="whitespace-nowrap px-4 py-4">
                         <div className="flex gap-2">
@@ -94,8 +98,8 @@ export default async function AdminProcessingPage() {
             </div>
           ) : (
             <EmptyState
-              title="Processamento ainda nao implementado"
-              description="Nenhuma versao de documento foi encontrada. Quando o upload criar versoes, elas aparecerao aqui com status real."
+              title="Nenhuma versao encontrada"
+              description="Envie uma norma em /admin/upload; ela aparecera aqui para extracao de texto e chunking estruturado."
             />
           )}
         </DashboardSection>
