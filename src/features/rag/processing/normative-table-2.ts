@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { ExtractedPdfPage } from "./extract-pdf-text";
 import { detectDrawingStructure, type DrawingMeasurement } from "./drawing-normative-structure";
@@ -152,6 +153,7 @@ async function upsertKnownTable2(
   pageNumber: number,
   sourceText: string,
 ) {
+  // createNormativeAsset calls ensureNormativeTableSchema (memoized) and creates the asset row
   const assetId = await createNormativeAsset({
     context,
     type: "TABLE",
@@ -165,46 +167,92 @@ async function upsertKnownTable2(
     tags: ["dimensionamento", "ramal de entrada", "127/220V", "cabo", "disjuntor", "aterramento"],
   });
 
-  await prisma.$executeRaw`
-    delete from normative_tables
-    where document_version_id = ${context.documentVersionId}
-      and table_number = '2'
-      and voltage = '127/220V'
-  `;
-
   const tableId = randomUUID();
-  await prisma.$executeRaw`
-    insert into normative_tables (
-      id, asset_id, document_version_id, document_id, table_number, title, page_number,
-      concessionaire, state, voltage, category, validation_status,
-      applicable_voltage, applicable_supply_type, unit_basis, table_notes,
-      source_text, created_at, updated_at
-    )
-    values (
+  const stateStr = (context.stateCodes ?? []).join(",");
+
+  // Build batch VALUES for all 14 rows up-front (outside the transaction)
+  const rowValues = TABLE_2_127_220_ROWS.map((item) =>
+    Prisma.sql`(
+      ${randomUUID()},
       ${tableId},
-      ${assetId},
-      ${context.documentVersionId},
-      ${context.documentId},
-      '2',
-      'Dimensionamento do Ramal de Conexao e Entrada das Instalacoes em 127/220V',
+      ${item.rowIndex},
+      ${"CARGA_INSTALADA"},
+      ${item.supplyType},
+      ${item.loadMinKw},
+      ${item.loadMaxKw},
+      ${null}::double precision,
+      ${null}::double precision,
+      ${"127/220V"},
+      ${item.breakerAmp},
+      ${item.breakerAmp},
+      ${item.breakerType},
+      ${item.copperMultiplexedMm2},
+      ${item.aluminumQuadruplexMm2 ?? item.aluminumTriplexMm2 ?? item.aluminumDuplexMm2},
+      ${item.copperConcentricMm2},
+      ${item.copperConcentricMm2},
+      ${item.copperMultiplexedMm2},
+      ${item.aluminumDuplexMm2},
+      ${item.aluminumTriplexMm2},
+      ${item.aluminumQuadruplexMm2},
+      ${item.galvanizedSteelConduitInch},
+      ${item.customerPhaseNeutralConductorMm2},
+      ${item.groundingConductorMm2},
+      ${item.galvanizedSteelConduitInch},
+      ${item.groundingConduitInch},
+      ${item.groundingConduitInch},
+      ${item.notes ?? null},
+      ${JSON.stringify(item)}::jsonb,
+      ${buildRawText(item)},
       ${pageNumber},
-      ${context.concessionaire},
-      ${(context.stateCodes ?? []).join(",")},
-      '127/220V',
-      'SERVICE_ENTRANCE_SIZING',
-      'VALIDATED',
-      '127/220V',
-      null,
-      'CARGA_INSTALADA_KW',
-      'Tabela importada manual/semi-manualmente para consulta estruturada auditavel.',
-      ${sourceText},
+      ${buildRawText(item)},
+      ${pageNumber},
       now(),
       now()
-    )
-  `;
+    )`,
+  );
 
-  for (const item of TABLE_2_127_220_ROWS) {
-    await prisma.$executeRaw`
+  // Use a transaction so that NormativeTable and all its rows succeed or fail together.
+  // This prevents the FK-23503 error where rows reference a table that was never created.
+  await prisma.$transaction(async (tx) => {
+    // Delete existing table — ON DELETE CASCADE removes its rows automatically
+    await tx.$executeRaw`
+      delete from normative_tables
+      where document_version_id = ${context.documentVersionId}
+        and table_number = ${"2"}
+        and voltage = ${"127/220V"}
+    `;
+
+    await tx.$executeRaw`
+      insert into normative_tables (
+        id, asset_id, document_version_id, document_id, table_number, title, page_number,
+        concessionaire, state, voltage, category, validation_status,
+        applicable_voltage, applicable_supply_type, unit_basis, table_notes,
+        source_text, created_at, updated_at
+      )
+      values (
+        ${tableId},
+        ${assetId},
+        ${context.documentVersionId},
+        ${context.documentId},
+        ${"2"},
+        ${"Dimensionamento do Ramal de Conexao e Entrada das Instalacoes em 127/220V"},
+        ${pageNumber},
+        ${context.concessionaire},
+        ${stateStr},
+        ${"127/220V"},
+        ${"SERVICE_ENTRANCE_SIZING"},
+        ${"VALIDATED"},
+        ${"127/220V"},
+        ${null},
+        ${"CARGA_INSTALADA_KW"},
+        ${"Tabela importada manual/semi-manualmente para consulta estruturada auditavel."},
+        ${sourceText},
+        now(),
+        now()
+      )
+    `;
+
+    await tx.$executeRaw`
       insert into normative_table_rows (
         id, table_id, row_index, method, supply_type, load_min_kw, load_max_kw,
         load_min_kva, load_max_kva, voltage, breaker_amp, breaker_a, breaker_type,
@@ -216,45 +264,9 @@ async function upsertKnownTable2(
         grounding_conduit_inch, notes, raw_row_json, raw_text, source_page, source_text, page_number,
         created_at, updated_at
       )
-      values (
-        ${randomUUID()},
-        ${tableId},
-        ${item.rowIndex},
-        'CARGA_INSTALADA',
-        ${item.supplyType},
-        ${item.loadMinKw},
-        ${item.loadMaxKw},
-        null,
-        null,
-        '127/220V',
-        ${item.breakerAmp},
-        ${item.breakerAmp},
-        ${item.breakerType},
-        ${item.copperMultiplexedMm2},
-        ${item.aluminumQuadruplexMm2 ?? item.aluminumTriplexMm2 ?? item.aluminumDuplexMm2},
-        ${item.copperConcentricMm2},
-        ${item.copperConcentricMm2},
-        ${item.copperMultiplexedMm2},
-        ${item.aluminumDuplexMm2},
-        ${item.aluminumTriplexMm2},
-        ${item.aluminumQuadruplexMm2},
-        ${item.galvanizedSteelConduitInch},
-        ${item.customerPhaseNeutralConductorMm2},
-        ${item.groundingConductorMm2},
-        ${item.galvanizedSteelConduitInch},
-        ${item.groundingConduitInch},
-        ${item.groundingConduitInch},
-        ${item.notes},
-        ${JSON.stringify(item)}::jsonb,
-        ${buildRawText(item)},
-        ${pageNumber},
-        ${buildRawText(item)},
-        ${pageNumber},
-        now(),
-        now()
-      )
+      values ${Prisma.join(rowValues)}
     `;
-  }
+  });
 }
 
 export async function saveKnownNormativeFiguresAndNotes(

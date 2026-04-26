@@ -10,6 +10,33 @@ import { ProcessDocumentButton } from "@/features/documents/components/process-d
 
 export const dynamic = "force-dynamic";
 
+function ProcessingErrorMessage({ error }: { error: string }) {
+  if (/23503|foreign key|fkey/i.test(error)) {
+    return (
+      <span className="text-red-600">
+        Falha ao salvar linhas da tabela normativa: a tabela principal nao foi criada antes das linhas (FK 23503).
+        Reprocesse o documento; se persistir, verifique os logs da Vercel.
+      </span>
+    );
+  }
+  if (/MaxClients|max clients|pool_size/i.test(error)) {
+    return (
+      <span className="text-amber-600">
+        Limite de conexoes do banco atingido durante o processamento (MaxClientsInSessionMode).
+        Aguarde alguns segundos e reprocesse. Se persistir, verifique se DATABASE_URL usa o pooler de transacao do Supabase (porta 6543).
+      </span>
+    );
+  }
+  if (/504|timeout|time.?out/i.test(error)) {
+    return (
+      <span className="text-amber-600">
+        Tempo limite do servidor ao processar o PDF. Tente novamente; se persistir, o PDF pode ser grande demais para o plano atual.
+      </span>
+    );
+  }
+  return <span className="text-red-500">{error.slice(0, 300)}</span>;
+}
+
 export default async function AdminProcessingPage() {
   const versions = await adminQuery(
     "admin processing versions",
@@ -73,8 +100,9 @@ export default async function AdminProcessingPage() {
                         {version.chunkCount} chunks
                       </td>
                       <td className="break-words px-3 py-4 leading-6">
-                        {version.processingError ??
-                          "Aguardando processamento com extracao de texto e chunks estruturados."}
+                        {version.processingError
+                          ? <ProcessingErrorMessage error={version.processingError} />
+                          : "Aguardando processamento com extracao de texto e chunks estruturados."}
                       </td>
                       <td className="px-3 py-4">
                         <div className="flex flex-col gap-2 xl:flex-row">

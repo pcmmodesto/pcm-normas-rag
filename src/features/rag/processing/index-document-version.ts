@@ -83,12 +83,10 @@ export async function indexDocumentVersion(documentVersionId: string) {
     stateCodes: version.state_codes,
   };
 
-  // All three normative saves write to independent tables — run in parallel
-  await Promise.all([
-    saveKnownNormativeTables(pages, normCtx),
-    saveGenericNormativeTables(pages, normCtx),
-    saveKnownNormativeFiguresAndNotes(pages, normCtx),
-  ]);
+  // Sequential to avoid exhausting the Supabase session-mode connection pool
+  await saveKnownNormativeTables(pages, normCtx);
+  await saveGenericNormativeTables(pages, normCtx);
+  await saveKnownNormativeFiguresAndNotes(pages, normCtx);
 
   await prisma.$executeRaw`
     update document_versions
@@ -97,6 +95,7 @@ export async function indexDocumentVersion(documentVersionId: string) {
       processing_status = ${"READY"}::processing_status,
       page_count = ${pages.length},
       chunk_count = ${chunks.length},
+      processing_error = null,
       processed_at = now(),
       updated_at = now()
     where id = ${documentVersionId}
