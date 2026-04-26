@@ -28,9 +28,9 @@ export function ProcessDocumentButton({ versionId }: ProcessDocumentButtonProps)
         method: "POST",
       });
 
-      const data = (await response.json()) as ProcessResult;
+      const data = await parseProcessResponse(response);
 
-      if (data.ok) {
+      if (response.ok && data.ok) {
         const extra =
           typeof data.pages === "number" && typeof data.chunks === "number"
             ? ` (${data.pages} pags, ${data.chunks} chunks)`
@@ -40,11 +40,17 @@ export function ProcessDocumentButton({ versionId }: ProcessDocumentButtonProps)
       } else {
         setFeedback({
           type: "error",
-          message: data.message ?? "Erro ao processar o documento.",
+          message: data.message ?? `Erro HTTP ${response.status} ao processar o documento.`,
         });
       }
-    } catch {
-      setFeedback({ type: "error", message: "Nao foi possivel conectar ao servidor." });
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message:
+          error instanceof Error
+            ? `Nao foi possivel concluir a chamada: ${error.message}`
+            : "Nao foi possivel conectar ao servidor.",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -71,4 +77,27 @@ export function ProcessDocumentButton({ versionId }: ProcessDocumentButtonProps)
       )}
     </div>
   );
+}
+
+async function parseProcessResponse(response: Response): Promise<ProcessResult> {
+  const text = await response.text();
+  if (!text) {
+    return {
+      ok: response.ok,
+      message: response.ok ? undefined : `Servidor respondeu HTTP ${response.status} sem detalhes.`,
+    };
+  }
+
+  try {
+    return JSON.parse(text) as ProcessResult;
+  } catch {
+    const compact = text.replace(/\s+/g, " ").trim().slice(0, 240);
+    return {
+      ok: false,
+      message:
+        response.status === 504
+          ? "Tempo limite do servidor ao processar o PDF. Tente novamente; se persistir, reprocesse em partes ou verifique os logs da Vercel."
+          : `Servidor respondeu HTTP ${response.status} sem JSON: ${compact}`,
+    };
+  }
 }

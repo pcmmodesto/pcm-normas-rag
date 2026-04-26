@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { indexDocumentVersion } from "@/features/rag/processing/index-document-version";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(
   _request: Request,
@@ -57,7 +58,7 @@ export async function POST(
             ? error.message
             : "Nao foi possivel processar o documento.",
       },
-      { status: 501 },
+      { status: 500 },
     );
   }
 }
