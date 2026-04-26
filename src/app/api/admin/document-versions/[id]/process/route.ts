@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { indexDocumentVersion } from "@/features/rag/processing/index-document-version";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(
   _request: Request,

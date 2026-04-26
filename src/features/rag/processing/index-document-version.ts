@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { smartChunkDocument } from "./smart-chunker";
 import { extractPdfText } from "./extract-pdf-text";
@@ -244,34 +245,31 @@ async function savePages(
   documentVersionId: string,
   pages: Awaited<ReturnType<typeof extractPdfText>>,
 ): Promise<PageId[]> {
-  const result: PageId[] = [];
+  if (pages.length === 0) return [];
 
-  for (const page of pages) {
-    const id = randomUUID();
-    await prisma.$executeRaw`
-      insert into document_pages (id, document_version_id, page_number, text, metadata, created_at, updated_at)
-      values (
-        ${id},
-        ${documentVersionId},
-        ${page.pageNumber},
-        ${page.text},
-        ${JSON.stringify({})}::jsonb,
-        now(),
-        now()
-      )
-      on conflict (document_version_id, page_number) do update
-        set text = excluded.text, updated_at = now()
-    `;
-    result.push({ pageNumber: page.pageNumber, id });
-  }
+  const pageIds: PageId[] = pages.map((p) => ({ pageNumber: p.pageNumber, id: randomUUID() }));
+  const emptyMeta = JSON.stringify({});
 
-  return result;
+  const values = pageIds.map((pid, i) =>
+    Prisma.sql`(${pid.id}, ${documentVersionId}, ${pid.pageNumber}, ${pages[i].text}, ${emptyMeta}::jsonb, now(), now())`,
+  );
+
+  await prisma.$executeRaw`
+    insert into document_pages (id, document_version_id, page_number, text, metadata, created_at, updated_at)
+    values ${Prisma.join(values)}
+    on conflict (document_version_id, page_number) do update
+      set text = excluded.text, updated_at = now()
+  `;
+
+  return pageIds;
 }
 
 async function saveChunks(
   documentVersionId: string,
   chunks: Awaited<ReturnType<typeof smartChunkDocument>>,
 ): Promise<void> {
+  if (chunks.length === 0) return;
+
   const pageRows = await prisma.$queryRaw<Array<{ page_number: number; id: string }>>`
     select page_number, id from document_pages
     where document_version_id = ${documentVersionId}
@@ -279,18 +277,63 @@ async function saveChunks(
 
   const pageIdMap = new Map(pageRows.map((r) => [r.page_number, r.id]));
 
-  for (const chunk of chunks) {
-    const pageId = pageIdMap.get(chunk.pageNumber);
-    if (!pageId) continue;
+  const rows = chunks
+    .map((chunk) => {
+      const pageId = pageIdMap.get(chunk.pageNumber);
+      if (!pageId) return null;
 
-    const metadata: Record<string, unknown> = {};
-    if (chunk.sectionTitle) metadata.sectionTitle = chunk.sectionTitle;
-    if (chunk.sectionNumber) metadata.sectionNumber = chunk.sectionNumber;
-    if (chunk.tableNumber) metadata.tableNumber = chunk.tableNumber;
-    if (chunk.tableTitle) metadata.tableTitle = chunk.tableTitle;
-    Object.assign(metadata, chunk.metadata ?? {});
-    const structured = classifyStructuredChunk(chunk);
+      const metadata: Record<string, unknown> = {};
+      if (chunk.sectionTitle) metadata.sectionTitle = chunk.sectionTitle;
+      if (chunk.sectionNumber) metadata.sectionNumber = chunk.sectionNumber;
+      if (chunk.tableNumber) metadata.tableNumber = chunk.tableNumber;
+      if (chunk.tableTitle) metadata.tableTitle = chunk.tableTitle;
+      Object.assign(metadata, chunk.metadata ?? {});
+      const s = classifyStructuredChunk(chunk);
 
+      return Prisma.sql`(
+        ${randomUUID()},
+        ${documentVersionId},
+        ${pageId},
+        ${chunk.pageNumber},
+        ${chunk.chunkIndex},
+        ${chunk.text},
+        ${s.normalizedText},
+        ${JSON.stringify(metadata)}::jsonb,
+        ${chunk.chunkType}::"chunk_type",
+        ${chunk.sectionNumber},
+        ${chunk.sectionTitle},
+        ${chunk.parentSectionNumber},
+        ${chunk.tableNumber},
+        ${chunk.tableTitle},
+        ${s.pageType},
+        ${s.technicalIntent},
+        ${s.technicalTerms},
+        ${s.voltageLevel},
+        ${s.topic},
+        ${s.isTable},
+        ${s.isFigure},
+        ${s.isSummary},
+        ${s.isCover},
+        ${s.isDefinition},
+        ${s.isRequirement},
+        ${s.isProcedure},
+        ${s.isSizingCriteria},
+        ${s.sourceQuality},
+        ${chunk.isSearchable},
+        ${chunk.isLowValue},
+        ${chunk.searchText},
+        now(),
+        now()
+      )`;
+    })
+    .filter((r): r is Prisma.Sql => r !== null);
+
+  if (rows.length === 0) return;
+
+  // Vercel limits payload size; insert in batches of 200 chunks
+  const BATCH = 200;
+  for (let i = 0; i < rows.length; i += BATCH) {
+    const batch = rows.slice(i, i + BATCH);
     await prisma.$executeRaw`
       insert into document_chunks (
         id, document_version_id, document_page_id, page_number,
@@ -302,41 +345,7 @@ async function saveChunks(
         source_quality, is_searchable, is_low_value, search_text,
         created_at, updated_at
       )
-      values (
-        ${randomUUID()},
-        ${documentVersionId},
-        ${pageId},
-        ${chunk.pageNumber},
-        ${chunk.chunkIndex},
-        ${chunk.text},
-        ${structured.normalizedText},
-        ${JSON.stringify(metadata)}::jsonb,
-        ${chunk.chunkType}::"chunk_type",
-        ${chunk.sectionNumber},
-        ${chunk.sectionTitle},
-        ${chunk.parentSectionNumber},
-        ${chunk.tableNumber},
-        ${chunk.tableTitle},
-        ${structured.pageType},
-        ${structured.technicalIntent},
-        ${structured.technicalTerms},
-        ${structured.voltageLevel},
-        ${structured.topic},
-        ${structured.isTable},
-        ${structured.isFigure},
-        ${structured.isSummary},
-        ${structured.isCover},
-        ${structured.isDefinition},
-        ${structured.isRequirement},
-        ${structured.isProcedure},
-        ${structured.isSizingCriteria},
-        ${structured.sourceQuality},
-        ${chunk.isSearchable},
-        ${chunk.isLowValue},
-        ${chunk.searchText},
-        now(),
-        now()
-      )
+      values ${Prisma.join(batch)}
       on conflict (document_version_id, chunk_index) do update
         set
           text = excluded.text,
