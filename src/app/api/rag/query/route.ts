@@ -19,11 +19,19 @@ export const runtime = "nodejs";
 
 const MIN_SCORE_LEIGO = 20;
 
+// Chunk types that get a score bonus in technical queries
+const TABLE_CHUNK_TYPES = new Set(["TABLE", "TABLE_ROW"]);
+
 type ChunkRow = {
   chunk_id: string;
   chunk_text: string;
   page_number: number;
   chunk_index: number;
+  chunk_type: string;
+  section_number: string | null;
+  section_title: string | null;
+  table_number: string | null;
+  table_title: string | null;
   document_title: string;
   version_label: string;
   concessionaire: string | null;
@@ -61,7 +69,6 @@ export async function POST(request: Request) {
 
   const isLeigo = audience === "LEIGO_ATENDIMENTO" || audience === "NORMA_REFERENCIA";
 
-  // Build search terms: keywords + audience-relevant required terms
   const extraTerms = isLeigo
     ? LEIGO_PRIORITY_TERMS.slice(0, 8)
     : INTENT_REQUIRED_TERMS[intent];
@@ -73,6 +80,13 @@ export async function POST(request: Request) {
     const detail = isLeigo
       ? scoreChunkForLeigo(chunk.chunk_text, keywords, question)
       : scoreChunkDetailed(chunk.chunk_text, intent, keywords, question);
+
+    // Bonus for structured table chunks in technical queries
+    if (!isLeigo && !detail.rejected && TABLE_CHUNK_TYPES.has(chunk.chunk_type)) {
+      detail.score += 25;
+      detail.reasons.push("+25: chunk de tabela estruturada");
+    }
+
     return { ...chunk, ...detail };
   });
 
@@ -104,6 +118,11 @@ export async function POST(request: Request) {
     versionLabel: c.version_label,
     pageNumber: c.page_number,
     chunkIndex: c.chunk_index,
+    chunkType: c.chunk_type,
+    sectionNumber: c.section_number,
+    sectionTitle: c.section_title,
+    tableNumber: c.table_number,
+    tableTitle: c.table_title,
     excerpt: c.chunk_text
       .replace(/NORMA T[EÉ]CNICA[\s\S]*?DOCUMENTO N[AÃ]O CONTROLADO\s*/g, "")
       .trim()
@@ -132,7 +151,9 @@ export async function POST(request: Request) {
       ? {
           debugInfo: {
             intent,
+            intentLabel: INTENT_LABELS[intent],
             audience,
+            audienceLabel: AUDIENCE_LABELS[audience],
             keywords,
             searchTerms,
             minScore,
@@ -141,6 +162,10 @@ export async function POST(request: Request) {
               chunkId: c.chunk_id,
               documentTitle: c.document_title,
               pageNumber: c.page_number,
+              chunkType: c.chunk_type,
+              sectionNumber: c.section_number,
+              sectionTitle: c.section_title,
+              tableNumber: c.table_number,
               score: c.score,
               reasons: c.reasons,
               rejected: c.rejected,
@@ -156,19 +181,27 @@ export async function POST(request: Request) {
 async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {
   if (searchTerms.length === 0) return [];
 
+  // Search against search_text (enriched with doc context) falling back to raw text
   const conditions = Prisma.join(
-    searchTerms.map((k) => Prisma.sql`lower(dc.text) like ${`%${k}%`}`),
+    searchTerms.map(
+      (k) => Prisma.sql`lower(coalesce(dc.search_text, dc.text)) like ${`%${k}%`}`,
+    ),
     " or ",
   );
 
   try {
     return await prisma.$queryRaw<ChunkRow[]>(Prisma.sql`
       select
-        dc.id          as chunk_id,
-        dc.text        as chunk_text,
+        dc.id            as chunk_id,
+        dc.text          as chunk_text,
         dc.page_number,
         dc.chunk_index,
-        td.title       as document_title,
+        dc.chunk_type,
+        dc.section_number,
+        dc.section_title,
+        dc.table_number,
+        dc.table_title,
+        td.title         as document_title,
         dv.version_label,
         td.concessionaire,
         td.state_codes,
@@ -177,6 +210,8 @@ async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {
       join document_versions dv on dv.id = dc.document_version_id
       join technical_documents td on td.id = dv.document_id
       where dv.processing_status = 'READY'
+        and dc.is_low_value = FALSE
+        and dc.is_searchable = TRUE
         and (${conditions})
       order by dc.page_number asc
       limit 30

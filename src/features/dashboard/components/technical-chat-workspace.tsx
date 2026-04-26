@@ -7,6 +7,11 @@ type Source = {
   versionLabel: string;
   pageNumber: number;
   chunkIndex: number;
+  chunkType?: string;
+  sectionNumber?: string | null;
+  sectionTitle?: string | null;
+  tableNumber?: string | null;
+  tableTitle?: string | null;
   excerpt: string;
   concessionaire: string | null;
   stateCodes: string[];
@@ -295,6 +300,17 @@ function SourceCard({ source }: { source: Source }) {
         <span className="rounded-full bg-[#E0F2FE] px-2 py-0.5 text-xs text-[#075985]">
           Pag. {source.pageNumber}
         </span>
+        {source.sectionNumber && (
+          <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs text-purple-700">
+            §{source.sectionNumber}
+            {source.sectionTitle ? ` ${source.sectionTitle}` : ""}
+          </span>
+        )}
+        {source.tableNumber && (
+          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+            Tabela {source.tableNumber}
+          </span>
+        )}
         {source.concessionaire && (
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
             {source.concessionaire}

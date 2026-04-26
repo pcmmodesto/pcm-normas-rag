@@ -201,6 +201,23 @@ enum AnswerStatus {
   @@map("answer_status")
 }
 
+enum ChunkType {
+  TEXT
+  SECTION
+  TABLE
+  TABLE_ROW
+  DEFINITION
+  REQUIREMENT
+  PROCEDURE
+  FORMULA
+  ANNEX
+  HEADER_FOOTER
+  SUMMARY
+  ADMINISTRATIVE
+
+  @@map("chunk_type")
+}
+
 enum BillingInterval {
   NONE
   SINGLE
@@ -470,12 +487,21 @@ model DocumentChunk {
   chunkIndex        Int                          @map("chunk_index")
   text              String
   tokenCount        Int?                         @map("token_count")
-  metadata          Json                         @default("{}")
-  embedding         Unsupported("vector(1536)")?
-  embeddingModel    String?                      @map("embedding_model")
-  embeddedAt        DateTime?                    @map("embedded_at")
-  createdAt         DateTime                     @default(now()) @map("created_at")
-  updatedAt         DateTime                     @updatedAt @map("updated_at")
+  metadata            Json                         @default("{}")
+  chunkType           ChunkType                    @default(TEXT) @map("chunk_type")
+  sectionNumber       String?                      @map("section_number")
+  sectionTitle        String?                      @map("section_title")
+  parentSectionNumber String?                      @map("parent_section_number")
+  tableNumber         String?                      @map("table_number")
+  tableTitle          String?                      @map("table_title")
+  isSearchable        Boolean                      @default(true) @map("is_searchable")
+  isLowValue          Boolean                      @default(false) @map("is_low_value")
+  searchText          String?                      @map("search_text")
+  embedding           Unsupported("vector(1536)")?
+  embeddingModel      String?                      @map("embedding_model")
+  embeddedAt          DateTime?                    @map("embedded_at")
+  createdAt           DateTime                     @default(now()) @map("created_at")
+  updatedAt           DateTime                     @updatedAt @map("updated_at")
 
   documentVersion DocumentVersion   @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
   documentPage    DocumentPage      @relation(fields: [documentPageId], references: [id], onDelete: Cascade)
@@ -484,6 +510,8 @@ model DocumentChunk {
   @@unique([documentVersionId, chunkIndex])
   @@index([documentVersionId, pageNumber])
   @@index([documentPageId])
+  @@index([isLowValue, isSearchable])
+  @@index([chunkType])
   @@map("document_chunks")
 }
 

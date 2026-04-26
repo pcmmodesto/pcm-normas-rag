@@ -1,19 +1,31 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
-import { chunkDocument } from "./chunk-document";
+import { smartChunkDocument } from "./smart-chunker";
 import { extractPdfText } from "./extract-pdf-text";
 
 type VersionRow = {
   id: string;
   storage_path: string | null;
   metadata: Record<string, unknown>;
+  version_label: string;
+  document_title: string;
+  concessionaire: string | null;
+  state_codes: string[] | null;
 };
 
 export async function indexDocumentVersion(documentVersionId: string) {
   const rows = await prisma.$queryRaw<VersionRow[]>`
-    select id, storage_path, metadata
-    from document_versions
-    where id = ${documentVersionId}
+    select
+      dv.id,
+      dv.storage_path,
+      dv.metadata,
+      dv.version_label,
+      td.title as document_title,
+      td.concessionaire,
+      td.state_codes
+    from document_versions dv
+    join technical_documents td on td.id = dv.document_id
+    where dv.id = ${documentVersionId}
     limit 1
   `;
 
@@ -25,6 +37,13 @@ export async function indexDocumentVersion(documentVersionId: string) {
     (version.metadata?.storageBucket as string | undefined) ??
     process.env.SUPABASE_DOCUMENTS_BUCKET ??
     "technical-documents";
+
+  const docContext = {
+    documentTitle: version.document_title,
+    concessionaria: version.concessionaire,
+    stateCodes: version.state_codes,
+    versionLabel: version.version_label,
+  };
 
   const pdfBytes = await downloadFromStorage(bucket, version.storage_path);
 
@@ -42,7 +61,7 @@ export async function indexDocumentVersion(documentVersionId: string) {
     where id = ${documentVersionId}
   `;
 
-  const chunks = await chunkDocument(pages);
+  const chunks = await smartChunkDocument(pages, docContext);
 
   await savePages(documentVersionId, pages);
   await saveChunks(documentVersionId, chunks);
@@ -123,7 +142,7 @@ async function savePages(
 
 async function saveChunks(
   documentVersionId: string,
-  chunks: Awaited<ReturnType<typeof chunkDocument>>,
+  chunks: Awaited<ReturnType<typeof smartChunkDocument>>,
 ): Promise<void> {
   const pageRows = await prisma.$queryRaw<Array<{ page_number: number; id: string }>>`
     select page_number, id from document_pages
@@ -138,13 +157,17 @@ async function saveChunks(
 
     const metadata: Record<string, unknown> = {};
     if (chunk.sectionTitle) metadata.sectionTitle = chunk.sectionTitle;
-    if (chunk.itemReference) metadata.itemReference = chunk.itemReference;
-    if (chunk.tableReference) metadata.tableReference = chunk.tableReference;
+    if (chunk.sectionNumber) metadata.sectionNumber = chunk.sectionNumber;
+    if (chunk.tableNumber) metadata.tableNumber = chunk.tableNumber;
+    if (chunk.tableTitle) metadata.tableTitle = chunk.tableTitle;
 
     await prisma.$executeRaw`
       insert into document_chunks (
         id, document_version_id, document_page_id, page_number,
-        chunk_index, text, metadata, created_at, updated_at
+        chunk_index, text, metadata,
+        chunk_type, section_number, section_title, parent_section_number,
+        table_number, table_title, is_searchable, is_low_value, search_text,
+        created_at, updated_at
       )
       values (
         ${randomUUID()},
@@ -154,11 +177,32 @@ async function saveChunks(
         ${chunk.chunkIndex},
         ${chunk.text},
         ${JSON.stringify(metadata)}::jsonb,
+        ${chunk.chunkType}::"chunk_type",
+        ${chunk.sectionNumber},
+        ${chunk.sectionTitle},
+        ${chunk.parentSectionNumber},
+        ${chunk.tableNumber},
+        ${chunk.tableTitle},
+        ${chunk.isSearchable},
+        ${chunk.isLowValue},
+        ${chunk.searchText},
         now(),
         now()
       )
       on conflict (document_version_id, chunk_index) do update
-        set text = excluded.text, metadata = excluded.metadata, updated_at = now()
+        set
+          text = excluded.text,
+          metadata = excluded.metadata,
+          chunk_type = excluded.chunk_type,
+          section_number = excluded.section_number,
+          section_title = excluded.section_title,
+          parent_section_number = excluded.parent_section_number,
+          table_number = excluded.table_number,
+          table_title = excluded.table_title,
+          is_searchable = excluded.is_searchable,
+          is_low_value = excluded.is_low_value,
+          search_text = excluded.search_text,
+          updated_at = now()
     `;
   }
 }

@@ -6,6 +6,10 @@ type Candidate = {
   chunkId: string;
   documentTitle: string;
   pageNumber: number;
+  chunkType: string;
+  sectionNumber: string | null;
+  sectionTitle: string | null;
+  tableNumber: string | null;
   score: number;
   reasons: string[];
   rejected: boolean;
@@ -16,8 +20,9 @@ type Candidate = {
 type DebugInfo = {
   intent: string;
   intentLabel: string;
+  audience: string;
+  audienceLabel: string;
   keywords: string[];
-  requiredTerms: string[];
   searchTerms: string[];
   minScore: number;
   candidateCount: number;
@@ -26,14 +31,29 @@ type DebugInfo = {
 
 type DebugResult = {
   ok: boolean;
-  insufficient?: boolean;
   intent?: string;
   intentLabel?: string;
+  audience?: string;
+  audienceLabel?: string;
+  answerType?: string;
+  isSufficient?: boolean;
   termsSearched?: string[];
   answer?: string;
   sources?: unknown[];
   debugInfo?: DebugInfo;
   message?: string;
+};
+
+const CHUNK_TYPE_COLORS: Record<string, string> = {
+  TABLE: "bg-blue-100 text-blue-800",
+  TABLE_ROW: "bg-blue-50 text-blue-700",
+  SECTION: "bg-purple-100 text-purple-800",
+  TEXT: "bg-slate-100 text-slate-600",
+  ADMINISTRATIVE: "bg-red-100 text-red-700",
+  SUMMARY: "bg-red-100 text-red-700",
+  DEFINITION: "bg-amber-100 text-amber-700",
+  REQUIREMENT: "bg-green-100 text-green-700",
+  ANNEX: "bg-indigo-100 text-indigo-700",
 };
 
 export function RagDebugClient() {
@@ -67,9 +87,11 @@ export function RagDebugClient() {
   }
 
   const debug = result?.debugInfo;
-  const passing = debug?.candidates.filter((c) => !c.rejected && c.score >= debug.minScore) ?? [];
+  const passing =
+    debug?.candidates.filter((c) => !c.rejected && c.score >= debug.minScore) ?? [];
   const rejected = debug?.candidates.filter((c) => c.rejected) ?? [];
-  const belowThreshold = debug?.candidates.filter((c) => !c.rejected && c.score < debug.minScore) ?? [];
+  const belowThreshold =
+    debug?.candidates.filter((c) => !c.rejected && c.score < debug.minScore) ?? [];
 
   return (
     <div className="space-y-5">
@@ -79,7 +101,7 @@ export function RagDebugClient() {
             className="min-h-24 w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-[#0F172A] outline-none transition placeholder:text-slate-400 focus:border-[#19A7E8] focus:ring-4 focus:ring-[#19A7E8]/10"
             disabled={loading}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ex.: Qual a bitola minima do ramal de entrada para ligacao trifasica?"
+            placeholder="Ex.: Qual o padrao de entrada de uma casa com carga de 15 kVA?"
             value={question}
           />
           <div className="flex justify-end">
@@ -113,11 +135,11 @@ export function RagDebugClient() {
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#123C7C]">
               Classificacao
             </p>
-            <div className="grid gap-2 text-sm md:grid-cols-2">
-              <Row label="Intencao detectada" value={`${debug.intent} — ${debug.intentLabel}`} />
-              <Row label="Score minimo exigido" value={String(debug.minScore)} />
-              <Row label="Candidatos recuperados" value={String(debug.candidateCount)} />
-              <Row label="Passaram no filtro" value={String(passing.length)} />
+            <div className="grid gap-2 text-sm md:grid-cols-2 lg:grid-cols-4">
+              <Row label="Intencao" value={`${debug.intent} — ${debug.intentLabel}`} />
+              <Row label="Audiencia" value={`${debug.audience} — ${debug.audienceLabel}`} />
+              <Row label="Score minimo" value={String(debug.minScore)} />
+              <Row label="Candidatos / Aprovados" value={`${debug.candidateCount} / ${passing.length}`} />
             </div>
           </div>
 
@@ -128,15 +150,11 @@ export function RagDebugClient() {
             </p>
             <div className="space-y-2 text-sm">
               <div>
-                <span className="font-medium text-slate-700">Keywords da pergunta: </span>
+                <span className="font-medium text-slate-700">Keywords: </span>
                 <TagList tags={debug.keywords} color="blue" />
               </div>
               <div>
-                <span className="font-medium text-slate-700">Termos obrigatorios da intencao: </span>
-                <TagList tags={debug.requiredTerms} color="amber" />
-              </div>
-              <div>
-                <span className="font-medium text-slate-700">Termos usados na busca SQL: </span>
+                <span className="font-medium text-slate-700">Busca SQL: </span>
                 <TagList tags={debug.searchTerms} color="slate" />
               </div>
             </div>
@@ -174,7 +192,7 @@ export function RagDebugClient() {
           {rejected.length > 0 && (
             <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
               <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-red-800">
-                Chunks rejeitados (baixo valor normativo) ({rejected.length})
+                Rejeitados por score/gate ({rejected.length})
               </p>
               <div className="space-y-3">
                 {rejected.map((c) => (
@@ -184,10 +202,9 @@ export function RagDebugClient() {
             </div>
           )}
 
-          {/* Insufficient warning */}
-          {result.insufficient && (
+          {!result.isSufficient && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
-              Nenhum chunk passou no filtro. A base normativa e insuficiente para esta pergunta.
+              Nenhum chunk passou no filtro. Base normativa insuficiente para esta pergunta.
             </div>
           )}
         </div>
@@ -240,6 +257,9 @@ function ChunkCard({
         ? "bg-red-100 text-red-800"
         : "bg-amber-100 text-amber-800";
 
+  const typeCls =
+    CHUNK_TYPE_COLORS[chunk.chunkType] ?? "bg-slate-100 text-slate-600";
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -247,6 +267,20 @@ function ChunkCard({
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
           Pag. {chunk.pageNumber}
         </span>
+        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${typeCls}`}>
+          {chunk.chunkType}
+        </span>
+        {chunk.sectionNumber && (
+          <span className="rounded-full bg-purple-50 px-2 py-0.5 text-xs text-purple-700">
+            §{chunk.sectionNumber}
+            {chunk.sectionTitle ? ` ${chunk.sectionTitle}` : ""}
+          </span>
+        )}
+        {chunk.tableNumber && (
+          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+            Tabela {chunk.tableNumber}
+          </span>
+        )}
         <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${scoreCls}`}>
           Score: {chunk.score}
         </span>
@@ -268,9 +302,7 @@ function ChunkCard({
       )}
 
       <div>
-        <p
-          className={`text-xs leading-relaxed text-slate-600 ${expanded ? "" : "line-clamp-3"}`}
-        >
+        <p className={`text-xs leading-relaxed text-slate-600 ${expanded ? "" : "line-clamp-3"}`}>
           {chunk.textPreview}
         </p>
         <button
