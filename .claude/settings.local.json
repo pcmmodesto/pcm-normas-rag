@@ -17,7 +17,11 @@
       "Bash(vercel whoami *)",
       "Bash(vercel link *)",
       "Bash(vercel --prod)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(vercel logs *)",
+      "Bash(vercel teams *)",
+      "Bash(vercel billing *)",
+      "Bash(vercel project *)"
     ]
   }
 }
