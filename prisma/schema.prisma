@@ -301,6 +301,26 @@ enum ValidationStatus {
   @@map("validation_status")
 }
 
+enum NormativeAssetType {
+  TABLE
+  FIGURE
+  DRAWING
+  NOTE
+  LEGEND
+  REQUIREMENT
+
+  @@map("normative_asset_type")
+}
+
+enum NormativeAssetValidationStatus {
+  PENDING
+  VALIDATED
+  REJECTED
+  NEEDS_REVIEW
+
+  @@map("normative_asset_validation_status")
+}
+
 enum AuditAction {
   USER_LOGIN
   DOCUMENT_CREATED
@@ -348,6 +368,7 @@ model User {
   paidQueryPurchases PaidQueryPurchase[]
   answerFeedbacks    AnswerFeedback[]
   validatedAnswers   ValidatedAnswer[]  @relation("ValidatedAnswerReviewer")
+  validatedNormativeAssets NormativeAsset[] @relation("NormativeAssetValidator")
 
   @@index([email])
   @@map("users")
@@ -459,6 +480,7 @@ model DocumentVersion {
   normativeTables  NormativeTable[]
   normativeFigures NormativeFigure[]
   normativeNotes   NormativeNote[]
+  normativeAssets  NormativeAsset[]
   abacos     TechnicalAbacus[]
 
   @@unique([documentId, versionLabel])
@@ -765,6 +787,7 @@ model TechnicalTableRow {
 
 model NormativeTable {
   id                String   @id @default(cuid())
+  assetId           String?  @map("asset_id")
   documentVersionId String   @map("document_version_id")
   documentId        String   @map("document_id")
   tableNumber       String?  @map("table_number")
@@ -777,28 +800,73 @@ model NormativeTable {
   validationStatus  String   @default("NAO_VALIDADA") @map("validation_status")
   validationNotes   String?  @map("validation_notes")
   validatedAt       DateTime? @map("validated_at")
+  applicableVoltage String?  @map("applicable_voltage")
+  applicableSupplyType String? @map("applicable_supply_type")
+  unitBasis         String?  @map("unit_basis")
+  tableNotes        String?  @map("table_notes")
   sourceText        String?  @map("source_text")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
+  asset           NormativeAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
   documentVersion DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
   rows            NormativeTableRow[]
   notes           NormativeNote[]
 
   @@index([documentVersionId])
   @@index([documentId])
+  @@index([assetId])
   @@index([tableNumber])
   @@index([state, voltage])
   @@map("normative_tables")
 }
 
+model NormativeAsset {
+  id                String                          @id @default(cuid())
+  documentId        String                          @map("document_id")
+  documentVersionId String                          @map("document_version_id")
+  type              NormativeAssetType
+  title             String
+  code              String?
+  pageNumber        Int                             @map("page_number")
+  imageStoragePath  String?                         @map("image_storage_path")
+  extractedText     String?                         @map("extracted_text")
+  structuredDataJson Json                            @default("{}") @map("structured_data_json")
+  validationStatus  NormativeAssetValidationStatus  @default(PENDING) @map("validation_status")
+  validatedByUserId String?                         @map("validated_by_user_id")
+  validatedAt       DateTime?                       @map("validated_at")
+  isActive          Boolean                         @default(true) @map("is_active")
+  concessionaire    String?
+  state             String?
+  voltageLevel      String?                         @map("voltage_level")
+  tags              String[]                        @default([])
+  createdAt         DateTime                        @default(now()) @map("created_at")
+  updatedAt         DateTime                        @updatedAt @map("updated_at")
+
+  documentVersion DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  validatedBy     User?           @relation("NormativeAssetValidator", fields: [validatedByUserId], references: [id], onDelete: SetNull)
+  tables          NormativeTable[]
+  figures         NormativeFigure[]
+
+  @@index([documentVersionId])
+  @@index([documentId])
+  @@index([type])
+  @@index([validationStatus])
+  @@index([isActive])
+  @@index([code])
+  @@map("normative_assets")
+}
+
 model NormativeFigure {
   id                String   @id @default(cuid())
+  assetId           String?  @map("asset_id")
   documentVersionId String   @map("document_version_id")
   documentId        String   @map("document_id")
   figureNumber      String?  @map("figure_number")
   title             String
   pageNumber        Int      @map("page_number")
+  imageStoragePath  String?  @map("image_storage_path")
+  description       String?
   figureType        String?  @map("figure_type")
   topic             String?
   voltage           String?
@@ -809,12 +877,14 @@ model NormativeFigure {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
+  asset           NormativeAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
   documentVersion DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
   items           NormativeFigureItem[]
   notes           NormativeNote[]
 
   @@index([documentVersionId])
   @@index([documentId])
+  @@index([assetId])
   @@index([figureNumber])
   @@index([relatedTableNumber])
   @@map("normative_figures")
@@ -824,10 +894,13 @@ model NormativeFigureItem {
   id             String   @id @default(cuid())
   figureId       String   @map("figure_id")
   itemCode       String?  @map("item_code")
+  itemNumber     String?  @map("item_number")
   description    String
   quantity       String?
   hasAsterisk    Boolean  @default(false) @map("has_asterisk")
   responsibility String   @default("NAO_INFORMADO")
+  relatedTable   String?  @map("related_table")
+  notes          String?
   rawText        String?  @map("raw_text")
   metadata       Json     @default("{}")
   createdAt      DateTime @default(now()) @map("created_at")
@@ -882,9 +955,15 @@ model NormativeTableRow {
   supplyType                      String?  @map("supply_type")
   loadMinKw                       Float?   @map("load_min_kw")
   loadMaxKw                       Float?   @map("load_max_kw")
+  loadMinKva                      Float?   @map("load_min_kva")
+  loadMaxKva                      Float?   @map("load_max_kva")
   voltage                         String?
   breakerAmp                      Int?     @map("breaker_amp")
+  breakerA                        Int?     @map("breaker_a")
   breakerType                     String?  @map("breaker_type")
+  copperCableMm2                  Float?   @map("copper_cable_mm2")
+  aluminumCableMm2                Float?   @map("aluminum_cable_mm2")
+  concentricCableMm2              Float?   @map("concentric_cable_mm2")
   copperConcentricMm2             Float?   @map("copper_concentric_mm2")
   copperMultiplexedMm2            Float?   @map("copper_multiplexed_mm2")
   aluminumDuplexMm2               Float?   @map("aluminum_duplex_mm2")
@@ -893,9 +972,14 @@ model NormativeTableRow {
   galvanizedSteelConduitInch      String?  @map("galvanized_steel_conduit_inch")
   customerPhaseNeutralConductorMm2 Float?  @map("customer_phase_neutral_conductor_mm2")
   groundingConductorMm2           Float?   @map("grounding_conductor_mm2")
+  conduitDiameter                 String?  @map("conduit_diameter")
+  groundingConduitDiameter        String?  @map("grounding_conduit_diameter")
   groundingConduitInch            String?  @map("grounding_conduit_inch")
   notes                           String?
+  rawRowJson                      Json     @default("{}") @map("raw_row_json")
   rawText                         String?  @map("raw_text")
+  sourcePage                      Int?     @map("source_page")
+  sourceText                      String?  @map("source_text")
   pageNumber                      Int      @map("page_number")
   createdAt                       DateTime @default(now()) @map("created_at")
   updatedAt                       DateTime @updatedAt @map("updated_at")

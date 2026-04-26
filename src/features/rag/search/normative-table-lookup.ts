@@ -22,6 +22,8 @@ export type NormativeTableLookupResult = {
     category: string | null;
     documentTitle: string;
     versionLabel: string;
+    imageStoragePath?: string | null;
+    validationStatus?: string | null;
   };
   selectedRow?: NormativeTableRowResult;
   candidateRows: NormativeTableRowResult[];
@@ -63,6 +65,9 @@ type TableLookupRow = {
   category: string | null;
   document_title: string;
   version_label: string;
+  image_storage_path: string | null;
+  asset_validation_status: string | null;
+  table_validation_status: string | null;
   row_id: string;
   row_index: number;
   method: string | null;
@@ -167,6 +172,8 @@ export async function lookupNormativeSizingTable(
           category: selected.category,
           documentTitle: selected.document_title,
           versionLabel: selected.version_label,
+          imageStoragePath: selected.image_storage_path,
+          validationStatus: selected.asset_validation_status ?? selected.table_validation_status,
         }
       : knownTable2Metadata();
 
@@ -202,6 +209,9 @@ async function queryRows(params: {
       nt.category,
       td.title as document_title,
       dv.version_label,
+      na.image_storage_path,
+      na.validation_status::text as asset_validation_status,
+      nt.validation_status as table_validation_status,
       ntr.id as row_id,
       ntr.row_index,
       ntr.method,
@@ -225,6 +235,7 @@ async function queryRows(params: {
       ntr.page_number
     from normative_table_rows ntr
     join normative_tables nt on nt.id = ntr.table_id
+    left join normative_assets na on na.id = nt.asset_id
     join document_versions dv on dv.id = nt.document_version_id
     join technical_documents td on td.id = dv.document_id
     where dv.processing_status = 'READY'
@@ -233,6 +244,11 @@ async function queryRows(params: {
       and (${params.loadKw} >= coalesce(ntr.load_min_kw, -999999))
       and ${params.loadKw} <= ntr.load_max_kw
       and (${params.state}::text is null or nt.state ilike ${`%${params.state ?? ""}%`} or td.state_codes @> ARRAY[${params.state ?? ""}]::text[])
+      and coalesce(na.is_active, true) = true
+      and (
+        na.validation_status = 'VALIDATED'::normative_asset_validation_status
+        or nt.validation_status in ('VALIDATED', 'VALIDADA')
+      )
     order by
       case when nt.validation_status = 'VALIDADA' then 0 else 1 end,
       case when nt.table_number = '2' then 0 else 1 end,
@@ -322,6 +338,8 @@ function knownTable2Metadata(): NonNullable<NormativeTableLookupResult["table"]>
     category: "SERVICE_ENTRANCE_SIZING",
     documentTitle: "NT.00001.EQTL-09-Fornecimento-de-Energia-Eletrica-em-Baixa-Tensao",
     versionLabel: "2025.1",
+    imageStoragePath: null,
+    validationStatus: "VALIDATED",
   };
 }
 

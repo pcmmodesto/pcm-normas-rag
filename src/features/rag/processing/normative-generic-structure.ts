@@ -1,7 +1,11 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import type { ExtractedPdfPage } from "./extract-pdf-text";
-import { ensureNormativeTableSchema, type VersionContext } from "./normative-table-2";
+import {
+  createNormativeAsset,
+  ensureNormativeTableSchema,
+  type VersionContext,
+} from "./normative-table-2";
 
 type DetectedTable = {
   tableNumber: string;
@@ -32,15 +36,30 @@ export async function saveGenericNormativeTables(
   for (const table of tables) {
     if (isCuratedTable2(table)) continue;
 
+    const assetId = await createNormativeAsset({
+      context,
+      type: "TABLE",
+      title: table.title,
+      code: `TABELA ${table.tableNumber}`,
+      pageNumber: table.pageNumber,
+      extractedText: table.sourceText,
+      structuredData: { rows: table.rows, extractionMethod: "generic_table_detection" },
+      validationStatus: "PENDING",
+      voltageLevel: table.voltage,
+      tags: ["tabela", "extracao generica", table.voltage ?? ""].filter(Boolean),
+    });
+
     const tableId = randomUUID();
     await prisma.$executeRaw`
       insert into normative_tables (
-        id, document_version_id, document_id, table_number, title, page_number,
-        concessionaire, state, voltage, category, validation_status, source_text,
+        id, asset_id, document_version_id, document_id, table_number, title, page_number,
+        concessionaire, state, voltage, category, validation_status,
+        applicable_voltage, unit_basis, source_text,
         created_at, updated_at
       )
       values (
         ${tableId},
+        ${assetId},
         ${context.documentVersionId},
         ${context.documentId},
         ${table.tableNumber},
@@ -50,7 +69,9 @@ export async function saveGenericNormativeTables(
         ${(context.stateCodes ?? []).join(",")},
         ${table.voltage},
         ${table.category},
-        'NAO_VALIDADA',
+        'PENDING',
+        ${table.voltage},
+        'RAW_TEXT',
         ${table.sourceText},
         now(),
         now()
@@ -62,7 +83,7 @@ export async function saveGenericNormativeTables(
       await prisma.$executeRaw`
         insert into normative_table_rows (
           id, table_id, row_index, method, voltage, notes, raw_text, page_number,
-          created_at, updated_at
+          raw_row_json, source_page, source_text, created_at, updated_at
         )
         values (
           ${randomUUID()},
@@ -73,6 +94,9 @@ export async function saveGenericNormativeTables(
           ${table.title},
           ${rawText},
           ${table.pageNumber},
+          ${JSON.stringify({ rawText, extractionMethod: "generic_table_detection" })}::jsonb,
+          ${table.pageNumber},
+          ${rawText},
           now(),
           now()
         )

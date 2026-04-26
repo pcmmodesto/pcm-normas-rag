@@ -350,6 +350,7 @@ function buildNormativeTableAnswer(
     "",
     `Tabela usada: Tabela ${table.tableNumber ?? "-"} - ${table.title}.`,
     `Fonte normativa utilizada: ${source}.`,
+    table.imageStoragePath ? `Imagem original associada: ${table.imageStoragePath}.` : "",
     `Linha selecionada: ${row.supplyType ?? "-"}, faixa de carga ${loadRange}.`,
     "",
     `Disjuntor: ${row.breakerAmp ?? "-"} A${row.breakerType ? ` (${row.breakerType})` : ""}.`,

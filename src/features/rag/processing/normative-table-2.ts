@@ -152,6 +152,19 @@ async function upsertKnownTable2(
   pageNumber: number,
   sourceText: string,
 ) {
+  const assetId = await createNormativeAsset({
+    context,
+    type: "TABLE",
+    title: "Tabela 2 - Dimensionamento do Ramal de Conexao e Entrada das Instalacoes em 127/220V",
+    code: "TABELA 2",
+    pageNumber,
+    extractedText: sourceText,
+    structuredData: { rows: TABLE_2_127_220_ROWS },
+    validationStatus: "VALIDATED",
+    voltageLevel: "127/220V",
+    tags: ["dimensionamento", "ramal de entrada", "127/220V", "cabo", "disjuntor", "aterramento"],
+  });
+
   await prisma.$executeRaw`
     delete from normative_tables
     where document_version_id = ${context.documentVersionId}
@@ -162,11 +175,14 @@ async function upsertKnownTable2(
   const tableId = randomUUID();
   await prisma.$executeRaw`
     insert into normative_tables (
-      id, document_version_id, document_id, table_number, title, page_number,
-      concessionaire, state, voltage, category, validation_status, source_text, created_at, updated_at
+      id, asset_id, document_version_id, document_id, table_number, title, page_number,
+      concessionaire, state, voltage, category, validation_status,
+      applicable_voltage, applicable_supply_type, unit_basis, table_notes,
+      source_text, created_at, updated_at
     )
     values (
       ${tableId},
+      ${assetId},
       ${context.documentVersionId},
       ${context.documentId},
       '2',
@@ -176,7 +192,11 @@ async function upsertKnownTable2(
       ${(context.stateCodes ?? []).join(",")},
       '127/220V',
       'SERVICE_ENTRANCE_SIZING',
-      'NAO_VALIDADA',
+      'VALIDATED',
+      '127/220V',
+      null,
+      'CARGA_INSTALADA_KW',
+      'Tabela importada manual/semi-manualmente para consulta estruturada auditavel.',
       ${sourceText},
       now(),
       now()
@@ -187,10 +207,13 @@ async function upsertKnownTable2(
     await prisma.$executeRaw`
       insert into normative_table_rows (
         id, table_id, row_index, method, supply_type, load_min_kw, load_max_kw,
-        voltage, breaker_amp, breaker_type, copper_concentric_mm2, copper_multiplexed_mm2,
+        load_min_kva, load_max_kva, voltage, breaker_amp, breaker_a, breaker_type,
+        copper_cable_mm2, aluminum_cable_mm2, concentric_cable_mm2,
+        copper_concentric_mm2, copper_multiplexed_mm2,
         aluminum_duplex_mm2, aluminum_triplex_mm2, aluminum_quadruplex_mm2,
         galvanized_steel_conduit_inch, customer_phase_neutral_conductor_mm2,
-        grounding_conductor_mm2, grounding_conduit_inch, notes, raw_text, page_number,
+        grounding_conductor_mm2, conduit_diameter, grounding_conduit_diameter,
+        grounding_conduit_inch, notes, raw_row_json, raw_text, source_page, source_text, page_number,
         created_at, updated_at
       )
       values (
@@ -201,9 +224,15 @@ async function upsertKnownTable2(
         ${item.supplyType},
         ${item.loadMinKw},
         ${item.loadMaxKw},
+        null,
+        null,
         '127/220V',
         ${item.breakerAmp},
+        ${item.breakerAmp},
         ${item.breakerType},
+        ${item.copperMultiplexedMm2},
+        ${item.aluminumQuadruplexMm2 ?? item.aluminumTriplexMm2 ?? item.aluminumDuplexMm2},
+        ${item.copperConcentricMm2},
         ${item.copperConcentricMm2},
         ${item.copperMultiplexedMm2},
         ${item.aluminumDuplexMm2},
@@ -212,8 +241,13 @@ async function upsertKnownTable2(
         ${item.galvanizedSteelConduitInch},
         ${item.customerPhaseNeutralConductorMm2},
         ${item.groundingConductorMm2},
+        ${item.galvanizedSteelConduitInch},
+        ${item.groundingConduitInch},
         ${item.groundingConduitInch},
         ${item.notes},
+        ${JSON.stringify(item)}::jsonb,
+        ${buildRawText(item)},
+        ${pageNumber},
         ${buildRawText(item)},
         ${pageNumber},
         now(),
@@ -277,19 +311,40 @@ export async function saveKnownNormativeFiguresAndNotes(
       })),
     );
 
+    const assetId = await createNormativeAsset({
+      context,
+      type: "DRAWING",
+      title,
+      code: `DESENHO ${drawingNumber}`,
+      pageNumber: drawingPage.page.pageNumber,
+      extractedText: group.map((item) => item.page.text).join("\n\n").slice(0, 12000),
+      structuredData: {
+        relatedTableNumber,
+        rows: allRows,
+        notes: allNotes,
+        measurements: allMeasurements,
+      },
+      validationStatus: "PENDING",
+      voltageLevel: detectVoltage(group.map((item) => item.page.text).join("\n")),
+      tags: ["desenho", "legenda", "nota", relatedTableNumber ? `tabela ${relatedTableNumber}` : ""].filter(Boolean),
+    });
+
     await prisma.$executeRaw`
       insert into normative_figures (
-        id, document_version_id, document_id, figure_number, title, page_number,
-        figure_type, topic, voltage, service_type, related_table_number,
-        source_text, metadata, created_at, updated_at
+        id, asset_id, document_version_id, document_id, figure_number, title, page_number,
+        image_storage_path, description, figure_type, topic, voltage, service_type,
+        related_table_number, source_text, metadata, created_at, updated_at
       )
       values (
         ${figureId},
+        ${assetId},
         ${context.documentVersionId},
         ${context.documentId},
         ${drawingNumber},
         ${title},
         ${drawingPage.page.pageNumber},
+        null,
+        ${title},
         'TECHNICAL_DRAWING',
         ${title},
         ${detectVoltage(group.map((item) => item.page.text).join("\n"))},
@@ -310,17 +365,20 @@ export async function saveKnownNormativeFiguresAndNotes(
     for (const row of allRows) {
       await prisma.$executeRaw`
         insert into normative_figure_items (
-          id, figure_id, item_code, description, quantity, has_asterisk,
-          responsibility, raw_text, metadata, created_at, updated_at
+          id, figure_id, item_code, item_number, description, quantity, has_asterisk,
+          responsibility, related_table, notes, raw_text, metadata, created_at, updated_at
         )
         values (
           ${randomUUID()},
           ${figureId},
           ${row.item},
+          ${row.item},
           ${row.description},
           ${row.quantity},
           ${row.hasAsterisk},
           ${row.responsibility},
+          ${relatedTableNumber},
+          null,
           ${`${row.item} ${row.description} ${row.quantity}`},
           ${JSON.stringify(row)}::jsonb,
           now(),
@@ -437,10 +495,99 @@ function detectServiceType(text: string) {
   return null;
 }
 
+export async function createNormativeAsset(params: {
+  context: VersionContext;
+  type: "TABLE" | "FIGURE" | "DRAWING" | "NOTE" | "LEGEND" | "REQUIREMENT";
+  title: string;
+  code: string | null;
+  pageNumber: number;
+  imageStoragePath?: string | null;
+  extractedText?: string | null;
+  structuredData?: unknown;
+  validationStatus?: "PENDING" | "VALIDATED" | "REJECTED" | "NEEDS_REVIEW";
+  voltageLevel?: string | null;
+  tags?: string[];
+}) {
+  await ensureNormativeTableSchema();
+  const id = randomUUID();
+
+  await prisma.$executeRaw`
+    insert into normative_assets (
+      id, document_id, document_version_id, type, title, code, page_number,
+      image_storage_path, extracted_text, structured_data_json, validation_status,
+      validated_by_user_id, validated_at, is_active, concessionaire, state,
+      voltage_level, tags, created_at, updated_at
+    )
+    values (
+      ${id},
+      ${params.context.documentId},
+      ${params.context.documentVersionId},
+      ${params.type}::normative_asset_type,
+      ${params.title},
+      ${params.code},
+      ${params.pageNumber},
+      ${params.imageStoragePath ?? null},
+      ${params.extractedText ?? null},
+      ${JSON.stringify(params.structuredData ?? {})}::jsonb,
+      ${(params.validationStatus ?? "PENDING")}::normative_asset_validation_status,
+      null,
+      ${params.validationStatus === "VALIDATED" ? new Date() : null},
+      true,
+      ${params.context.concessionaire},
+      ${(params.context.stateCodes ?? []).join(",")},
+      ${params.voltageLevel ?? null},
+      ${params.tags ?? []},
+      now(),
+      now()
+    )
+  `;
+
+  return id;
+}
+
 export async function ensureNormativeTableSchema() {
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'normative_asset_type') THEN
+        CREATE TYPE normative_asset_type AS ENUM ('TABLE', 'FIGURE', 'DRAWING', 'NOTE', 'LEGEND', 'REQUIREMENT');
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'normative_asset_validation_status') THEN
+        CREATE TYPE normative_asset_validation_status AS ENUM ('PENDING', 'VALIDATED', 'REJECTED', 'NEEDS_REVIEW');
+      END IF;
+    END
+    $$;
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS normative_assets (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      document_version_id TEXT NOT NULL,
+      type normative_asset_type NOT NULL,
+      title TEXT NOT NULL,
+      code TEXT,
+      page_number INTEGER NOT NULL,
+      image_storage_path TEXT,
+      extracted_text TEXT,
+      structured_data_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      validation_status normative_asset_validation_status NOT NULL DEFAULT 'PENDING',
+      validated_by_user_id TEXT,
+      validated_at TIMESTAMP(3),
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      concessionaire TEXT,
+      state TEXT,
+      voltage_level TEXT,
+      tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+      created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS normative_tables (
       id TEXT PRIMARY KEY,
+      asset_id TEXT REFERENCES normative_assets(id) ON DELETE SET NULL,
       document_version_id TEXT NOT NULL,
       document_id TEXT NOT NULL,
       table_number TEXT,
@@ -453,6 +600,10 @@ export async function ensureNormativeTableSchema() {
       validation_status TEXT NOT NULL DEFAULT 'NAO_VALIDADA',
       validation_notes TEXT,
       validated_at TIMESTAMP(3),
+      applicable_voltage TEXT,
+      applicable_supply_type TEXT,
+      unit_basis TEXT,
+      table_notes TEXT,
       source_text TEXT,
       created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -461,9 +612,14 @@ export async function ensureNormativeTableSchema() {
 
   await prisma.$executeRawUnsafe(`
     ALTER TABLE normative_tables
+      ADD COLUMN IF NOT EXISTS asset_id TEXT REFERENCES normative_assets(id) ON DELETE SET NULL,
       ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'NAO_VALIDADA',
       ADD COLUMN IF NOT EXISTS validation_notes TEXT,
-      ADD COLUMN IF NOT EXISTS validated_at TIMESTAMP(3);
+      ADD COLUMN IF NOT EXISTS validated_at TIMESTAMP(3),
+      ADD COLUMN IF NOT EXISTS applicable_voltage TEXT,
+      ADD COLUMN IF NOT EXISTS applicable_supply_type TEXT,
+      ADD COLUMN IF NOT EXISTS unit_basis TEXT,
+      ADD COLUMN IF NOT EXISTS table_notes TEXT;
   `);
 
   await prisma.$executeRawUnsafe(`
@@ -475,9 +631,15 @@ export async function ensureNormativeTableSchema() {
       supply_type TEXT,
       load_min_kw DOUBLE PRECISION,
       load_max_kw DOUBLE PRECISION,
+      load_min_kva DOUBLE PRECISION,
+      load_max_kva DOUBLE PRECISION,
       voltage TEXT,
       breaker_amp INTEGER,
+      breaker_a INTEGER,
       breaker_type TEXT,
+      copper_cable_mm2 DOUBLE PRECISION,
+      aluminum_cable_mm2 DOUBLE PRECISION,
+      concentric_cable_mm2 DOUBLE PRECISION,
       copper_concentric_mm2 DOUBLE PRECISION,
       copper_multiplexed_mm2 DOUBLE PRECISION,
       aluminum_duplex_mm2 DOUBLE PRECISION,
@@ -486,9 +648,14 @@ export async function ensureNormativeTableSchema() {
       galvanized_steel_conduit_inch TEXT,
       customer_phase_neutral_conductor_mm2 DOUBLE PRECISION,
       grounding_conductor_mm2 DOUBLE PRECISION,
+      conduit_diameter TEXT,
+      grounding_conduit_diameter TEXT,
       grounding_conduit_inch TEXT,
       notes TEXT,
+      raw_row_json JSONB NOT NULL DEFAULT '{}'::jsonb,
       raw_text TEXT,
+      source_page INTEGER,
+      source_text TEXT,
       page_number INTEGER NOT NULL,
       created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -497,13 +664,31 @@ export async function ensureNormativeTableSchema() {
   `);
 
   await prisma.$executeRawUnsafe(`
+    ALTER TABLE normative_table_rows
+      ADD COLUMN IF NOT EXISTS load_min_kva DOUBLE PRECISION,
+      ADD COLUMN IF NOT EXISTS load_max_kva DOUBLE PRECISION,
+      ADD COLUMN IF NOT EXISTS breaker_a INTEGER,
+      ADD COLUMN IF NOT EXISTS copper_cable_mm2 DOUBLE PRECISION,
+      ADD COLUMN IF NOT EXISTS aluminum_cable_mm2 DOUBLE PRECISION,
+      ADD COLUMN IF NOT EXISTS concentric_cable_mm2 DOUBLE PRECISION,
+      ADD COLUMN IF NOT EXISTS conduit_diameter TEXT,
+      ADD COLUMN IF NOT EXISTS grounding_conduit_diameter TEXT,
+      ADD COLUMN IF NOT EXISTS raw_row_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS source_page INTEGER,
+      ADD COLUMN IF NOT EXISTS source_text TEXT;
+  `);
+
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS normative_figures (
       id TEXT PRIMARY KEY,
+      asset_id TEXT REFERENCES normative_assets(id) ON DELETE SET NULL,
       document_version_id TEXT NOT NULL,
       document_id TEXT NOT NULL,
       figure_number TEXT,
       title TEXT NOT NULL,
       page_number INTEGER NOT NULL,
+      image_storage_path TEXT,
+      description TEXT,
       figure_type TEXT,
       topic TEXT,
       voltage TEXT,
@@ -517,19 +702,36 @@ export async function ensureNormativeTableSchema() {
   `);
 
   await prisma.$executeRawUnsafe(`
+    ALTER TABLE normative_figures
+      ADD COLUMN IF NOT EXISTS asset_id TEXT REFERENCES normative_assets(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS image_storage_path TEXT,
+      ADD COLUMN IF NOT EXISTS description TEXT;
+  `);
+
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS normative_figure_items (
       id TEXT PRIMARY KEY,
       figure_id TEXT NOT NULL REFERENCES normative_figures(id) ON DELETE CASCADE,
       item_code TEXT,
+      item_number TEXT,
       description TEXT NOT NULL,
       quantity TEXT,
       has_asterisk BOOLEAN NOT NULL DEFAULT false,
       responsibility TEXT NOT NULL DEFAULT 'NAO_INFORMADO',
+      related_table TEXT,
+      notes TEXT,
       raw_text TEXT,
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE normative_figure_items
+      ADD COLUMN IF NOT EXISTS item_number TEXT,
+      ADD COLUMN IF NOT EXISTS related_table TEXT,
+      ADD COLUMN IF NOT EXISTS notes TEXT;
   `);
 
   await prisma.$executeRawUnsafe(`
@@ -557,15 +759,23 @@ export async function ensureNormativeTableSchema() {
   `);
 
   for (const statement of [
+    `CREATE INDEX IF NOT EXISTS normative_assets_document_version_id_idx ON normative_assets(document_version_id)`,
+    `CREATE INDEX IF NOT EXISTS normative_assets_document_id_idx ON normative_assets(document_id)`,
+    `CREATE INDEX IF NOT EXISTS normative_assets_type_idx ON normative_assets(type)`,
+    `CREATE INDEX IF NOT EXISTS normative_assets_validation_status_idx ON normative_assets(validation_status)`,
+    `CREATE INDEX IF NOT EXISTS normative_assets_is_active_idx ON normative_assets(is_active)`,
+    `CREATE INDEX IF NOT EXISTS normative_assets_code_idx ON normative_assets(code)`,
     `CREATE INDEX IF NOT EXISTS normative_tables_document_version_id_idx ON normative_tables(document_version_id)`,
     `CREATE INDEX IF NOT EXISTS normative_tables_document_id_idx ON normative_tables(document_id)`,
     `CREATE INDEX IF NOT EXISTS normative_tables_table_number_idx ON normative_tables(table_number)`,
+    `CREATE INDEX IF NOT EXISTS normative_tables_asset_id_idx ON normative_tables(asset_id)`,
     `CREATE INDEX IF NOT EXISTS normative_tables_state_voltage_idx ON normative_tables(state, voltage)`,
     `CREATE INDEX IF NOT EXISTS normative_table_rows_table_id_idx ON normative_table_rows(table_id)`,
     `CREATE INDEX IF NOT EXISTS normative_table_rows_voltage_supply_type_idx ON normative_table_rows(voltage, supply_type)`,
     `CREATE INDEX IF NOT EXISTS normative_table_rows_load_min_kw_load_max_kw_idx ON normative_table_rows(load_min_kw, load_max_kw)`,
     `CREATE INDEX IF NOT EXISTS normative_figures_document_version_id_idx ON normative_figures(document_version_id)`,
     `CREATE INDEX IF NOT EXISTS normative_figures_document_id_idx ON normative_figures(document_id)`,
+    `CREATE INDEX IF NOT EXISTS normative_figures_asset_id_idx ON normative_figures(asset_id)`,
     `CREATE INDEX IF NOT EXISTS normative_figures_figure_number_idx ON normative_figures(figure_number)`,
     `CREATE INDEX IF NOT EXISTS normative_figures_related_table_number_idx ON normative_figures(related_table_number)`,
     `CREATE INDEX IF NOT EXISTS normative_figure_items_figure_id_idx ON normative_figure_items(figure_id)`,

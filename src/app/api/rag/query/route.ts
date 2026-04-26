@@ -233,6 +233,8 @@ export async function POST(request: Request) {
           mode: structuredLookup.mode,
           selectedRow: structuredLookup.selectedRow,
           kvaKwNotice: structuredLookup.kvaKwNotice,
+          imageStoragePath: structuredLookup.table.imageStoragePath ?? null,
+          validationStatus: structuredLookup.table.validationStatus ?? null,
         },
         score: 999,
       }]
