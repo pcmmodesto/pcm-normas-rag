@@ -1,6 +1,7 @@
 import type { ExtractedPdfPage } from "./extract-pdf-text";
 import { detectTechnicalPageType, isLowValuePageType } from "./detect-technical-page-type";
 import { buildVisualTechnicalChunks } from "./build-visual-technical-chunks";
+import { buildConsolidatedDrawingChunks } from "./drawing-normative-structure";
 import { buildSearchText } from "./technical-normalizer";
 
 export type SmartChunk = {
@@ -340,12 +341,22 @@ export async function smartChunkDocument(
     globalIndex += pageChunks.length;
 
     for (const chunk of pageChunks) {
+      const existingPageType =
+        typeof chunk.metadata?.pageType === "string" ? chunk.metadata.pageType : null;
       chunk.metadata = {
         ...(chunk.metadata ?? {}),
-        pageType,
+        pageType: existingPageType ?? pageType,
+        sourcePageType: pageType,
       };
     }
   }
+
+  const consolidatedDrawingChunks = buildConsolidatedDrawingChunks(
+    allChunks,
+    docContext,
+    globalIndex,
+  );
+  allChunks.push(...consolidatedDrawingChunks);
 
   // Re-assign sequential chunkIndex across all chunks
   for (let i = 0; i < allChunks.length; i++) {

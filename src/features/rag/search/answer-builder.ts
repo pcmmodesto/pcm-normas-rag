@@ -16,6 +16,7 @@ export type PassingChunk = {
   pageNumber: number;
   chunkText: string;
   score: number;
+  metadata?: unknown;
 };
 
 function normalize(text: string): string {
@@ -221,6 +222,30 @@ function buildTechnicalAnswer(
   isSufficient: boolean,
   missingContext: string[],
 ): BuiltAnswer {
+  const drawingAnswer = buildDrawingStructuredAnswer(intent, chunks);
+  if (drawingAnswer) return drawingAnswer;
+
+  if (requiresTableSelection(intent) && missingContext.length > 0) {
+    const foundTables = summarizeFoundTables(chunks);
+    return {
+      answerType: "NEEDS_CONTEXT",
+      confidence: chunks.length > 0 ? 0.55 : 0.3,
+      answer: [
+        `A pergunta e de dimensionamento tecnico (${INTENT_LABELS[intent]}), entao nao vou tratar como solicitacao de ligacao nova.`,
+        "",
+        chunks.length > 0
+          ? `A base encontrou fonte tecnica/tabela candidata${foundTables ? `: ${foundTables}.` : "."}`
+          : "A base nao encontrou uma tabela de dimensionamento suficientemente clara para fechar a resposta.",
+        "",
+        "Para escolher a linha correta da tabela e definir cabo/disjuntor com seguranca, informe:",
+        ...missingContext.map((item) => `- ${item}`),
+        "",
+        "Com esses dados eu consulto a tabela de dimensionamento aplicavel e retorno a linha normativa usada, com pagina/tabela e valores de cabo, disjuntor, eletroduto e aterramento quando estiverem disponiveis.",
+      ].join("\n"),
+      normativeSummary: buildNormativeSummary(chunks),
+    };
+  }
+
   if (missingContext.length >= 2 && !isSufficient) {
     const missing = missingContext.map((m) => `- ${m}`).join("\n");
     return {
@@ -238,6 +263,20 @@ function buildTechnicalAnswer(
   }
 
   if (!isSufficient) {
+    if (
+      intent === "SERVICE_ENTRANCE_CABLE" ||
+      intent === "PROTECTION" ||
+      intent === "SERVICE_ENTRANCE_STANDARD"
+    ) {
+      return {
+        answerType: "INSUFFICIENT",
+        confidence: 0.15,
+        answer:
+          "Nao encontrei na base normativa atual uma tabela ou item especifico suficiente para definir com seguranca o cabo/disjuntor. A base encontrou apenas conceitos auxiliares, como carga instalada/demanda, mas nao a tabela de dimensionamento aplicavel.",
+        normativeSummary: "",
+      };
+    }
+
     return {
       answerType: "INSUFFICIENT",
       confidence: 0.1,
@@ -284,6 +323,128 @@ function buildTechnicalAnswer(
     answer,
     normativeSummary: normativeLines.join("\n\n"),
   };
+}
+
+function buildDrawingStructuredAnswer(
+  intent: TechnicalIntent,
+  chunks: PassingChunk[],
+): BuiltAnswer | null {
+  if (!["DIMENSION_REQUIREMENT", "MATERIAL_RESPONSIBILITY", "DRAWING_REFERENCE"].includes(intent)) {
+    return null;
+  }
+
+  const metadataList = chunks
+    .map((chunk) => ({ chunk, metadata: getMetadataObject(chunk.metadata) }))
+    .filter(({ metadata }) => Object.keys(metadata).length > 0);
+
+  if (intent === "DIMENSION_REQUIREMENT") {
+    for (const { chunk, metadata } of metadataList) {
+      const measurements = getArrayMetadata<Record<string, unknown>>(metadata, "measurements");
+      const measurement = measurements.find((m) => Number(m.value) > 0);
+      if (!measurement) continue;
+      const value = Number(measurement.value);
+      const tolerance = Number(measurement.tolerance ?? 0);
+      const minValue = Number(measurement.minValue ?? value - tolerance);
+      const maxValue = Number(measurement.maxValue ?? value + tolerance);
+      const noteNumber = String(measurement.noteNumber ?? "-");
+      const drawingNumber = String(measurement.relatedDrawingNumber ?? metadata.drawingNumber ?? "-");
+      return {
+        answerType: "DIRECT",
+        confidence: 0.9,
+        answer:
+          `De acordo com a Nota ${noteNumber} do Desenho ${drawingNumber}, a altura da caixa de medicao deve ser de ${formatPtNumber(value)} mm, com tolerancia de +/- ${formatPtNumber(tolerance)} mm, ou seja, aproximadamente entre ${formatMeters(minValue)} m e ${formatMeters(maxValue)} m.`,
+        normativeSummary: `[${chunk.documentTitle} | ${chunk.versionLabel} | Pag. ${chunk.pageNumber}] ${String(measurement.rawText ?? "")}`,
+      };
+    }
+  }
+
+  if (intent === "MATERIAL_RESPONSIBILITY") {
+    for (const { chunk, metadata } of metadataList) {
+      const rows = getArrayMetadata<Record<string, unknown>>(metadata, "tableRows");
+      const concessionaireItems = rows.filter((row) => row.responsibility === "CONCESSIONARIA");
+      if (concessionaireItems.length === 0) continue;
+      const tableNumber = String(metadata.relatedTableNumber ?? metadata.tableNumber ?? "-");
+      const drawingNumber = String(metadata.drawingNumber ?? metadata.relatedDrawingNumber ?? "-");
+      const items = concessionaireItems
+        .map((row) => `- Item ${String(row.item)}: ${String(row.description)} (${String(row.quantity)})`)
+        .join("\n");
+      return {
+        answerType: "DIRECT",
+        confidence: 0.85,
+        answer: [
+          `Conforme a Nota 73, os itens marcados com (*) na Tabela ${tableNumber} - Legenda do Desenho ${drawingNumber} - sao de responsabilidade da concessionaria.`,
+          "",
+          items,
+          "",
+          `Fonte: ${chunk.documentTitle}, pagina ${chunk.pageNumber}.`,
+        ].join("\n"),
+        normativeSummary: `[${chunk.documentTitle} | ${chunk.versionLabel} | Pag. ${chunk.pageNumber}] Tabela ${tableNumber}`,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getMetadataObject(metadata: unknown): Record<string, unknown> {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>)
+    : {};
+}
+
+function getArrayMetadata<T>(metadata: Record<string, unknown>, key: string): T[] {
+  const value = metadata[key];
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function formatPtNumber(value: number) {
+  return value.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+}
+
+function formatMeters(valueInMm: number) {
+  return (valueInMm / 1000).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function requiresTableSelection(intent: TechnicalIntent) {
+  return [
+    "SERVICE_ENTRANCE_CABLE",
+    "PROTECTION",
+    "SERVICE_ENTRANCE_STANDARD",
+    "LOAD_DEMAND",
+  ].includes(intent);
+}
+
+function summarizeFoundTables(chunks: PassingChunk[]) {
+  const labels = chunks
+    .map((chunk) => {
+      const metadata = getMetadataObject(chunk.metadata);
+      const tableNumber = metadata.tableNumber ?? metadata.relatedTableNumber;
+      const tableTitle = metadata.tableTitle;
+      if (tableNumber || tableTitle) {
+        return `Tabela ${String(tableNumber ?? "")} ${String(tableTitle ?? "")}`.trim();
+      }
+      const tableMatch = /Tabela\s+\d+[^\n]*/i.exec(chunk.chunkText);
+      return tableMatch?.[0] ?? null;
+    })
+    .filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(labels)).slice(0, 3).join("; ");
+}
+
+function buildNormativeSummary(chunks: PassingChunk[]) {
+  return chunks
+    .slice(0, 3)
+    .map((chunk) => {
+      const excerpt = chunk.chunkText
+        .replace(/NORMA T[EÉ]CNICA[\s\S]*?DOCUMENTO N[ÃA]O CONTROLADO\s*/g, "")
+        .trim()
+        .slice(0, 400);
+      return `[${chunk.documentTitle} | ${chunk.versionLabel} | Pag. ${chunk.pageNumber}]\n${excerpt}`;
+    })
+    .join("\n\n");
 }
 
 export function buildStructuredAnswer(params: {

@@ -2,6 +2,7 @@ import type { TechnicalPageType } from "./detect-technical-page-type";
 import type { SmartChunk, DocContext } from "./smart-chunker";
 import { extractDrawingContext } from "./extract-drawing-context";
 import { extractTableLikeData } from "./extract-table-like-data";
+import { detectDrawingStructure } from "./drawing-normative-structure";
 import { buildSearchText } from "./technical-normalizer";
 
 // Maximum text length for a single chunk
@@ -33,6 +34,7 @@ export function buildVisualTechnicalChunks(
   startIndex: number,
 ): SmartChunk[] {
   const text = stripDocumentHeader(rawText);
+  const drawingStructure = detectDrawingStructure(text);
   const chunks: SmartChunk[] = [];
   let idx = startIndex;
 
@@ -63,17 +65,22 @@ export function buildVisualTechnicalChunks(
           isLowValue: false,
           searchText: drawingSearchText,
           metadata: {
+            pageType: "TECHNICAL_DRAWING",
             drawingType: drawingCtx.drawingType,
-            drawingNumber: drawingCtx.drawingNumber,
-            drawingTitle: drawingCtx.drawingTitle,
+            drawingNumber: drawingCtx.drawingNumber ?? drawingStructure.drawingNumber,
+            drawingTitle: drawingCtx.drawingTitle ?? drawingStructure.drawingTitle,
             drawingSubject: drawingCtx.drawingSubject,
             visualElements: drawingCtx.visualElements,
             technicalTerms: drawingCtx.technicalTerms,
             applicableVoltageLevels: drawingCtx.applicableVoltageLevels,
+            voltageLevel: drawingCtx.applicableVoltageLevels[0] ?? null,
+            serviceType: inferServiceType(text),
             detectedLabels: drawingCtx.detectedLabels,
             technicalIntent: drawingCtx.technicalIntent,
             visualDescription: drawingCtx.visualDescription,
-            pageType,
+            relatedTableNumber: drawingStructure.relatedTableNumber,
+            technicalNotes: drawingStructure.notes,
+            measurements: drawingStructure.measurements,
             extractionMethod: "text_heuristic",
           },
         },
@@ -84,7 +91,10 @@ export function buildVisualTechnicalChunks(
     // ── NORMATIVE_TABLE chunks (if tables found) ─────────────────────────────
     const tables = extractTableLikeData(text);
     for (const table of tables) {
-      const tableText = buildTableChunkText(table, drawingCtx.drawingTitle);
+      let tableText = buildTableChunkText(table, drawingCtx.drawingTitle);
+      if (drawingStructure.rows.length > 0) {
+        tableText = appendStructuredLegendRows(tableText, drawingStructure.rows);
+      }
       const tableSearchText = buildSearchText({
         ...docContext,
         chunkText: tableText,
@@ -108,16 +118,21 @@ export function buildVisualTechnicalChunks(
             isLowValue: false,
             searchText: tableSearchText,
             metadata: {
+              pageType: table.tableTitle?.toLowerCase().includes("legenda do desenho")
+                ? "DRAWING_LEGEND_TABLE"
+                : "MATERIAL_TABLE",
               tableNumber: table.tableNumber,
               tableTitle: table.tableTitle,
               columns: table.columns,
               rows: table.rows,
+              tableRows: drawingStructure.rows.length > 0 ? drawingStructure.rows : table.rows,
+              asteriskItems: drawingStructure.rows.filter((row) => row.hasAsterisk),
               notes: table.notes,
               tableExtractionStatus: table.tableExtractionStatus,
               relatedDrawingTitle: drawingCtx.drawingTitle,
-              relatedDrawingNumber: drawingCtx.drawingNumber,
+              relatedDrawingNumber:
+                drawingStructure.relatedDrawingNumber ?? drawingCtx.drawingNumber,
               technicalIntent: drawingCtx.technicalIntent,
-              pageType,
               extractionMethod: "text_heuristic",
             },
           },
@@ -127,7 +142,10 @@ export function buildVisualTechnicalChunks(
     }
 
     // ── NORMATIVE_NOTE chunk ─────────────────────────────────────────────────
-    const notesText = extractNotesSection(text);
+    const notesText =
+      drawingStructure.notes.length > 0
+        ? drawingStructure.notes.map((note) => `Nota ${note.noteNumber ?? ""}: ${note.text}`).join("\n")
+        : extractNotesSection(text);
     if (notesText.length >= 60) {
       const notesSearchText = buildSearchText({
         ...docContext,
@@ -150,8 +168,16 @@ export function buildVisualTechnicalChunks(
             isLowValue: false,
             searchText: notesSearchText,
             metadata: {
+              pageType:
+                drawingStructure.measurements.length > 0
+                  ? "DIMENSION_REQUIREMENT"
+                  : drawingStructure.hasConcessionaireResponsibilityRule
+                    ? "RESPONSIBILITY_RULE"
+                    : "DRAWING_NOTE",
               relatedDrawingTitle: drawingCtx.drawingTitle,
-              relatedDrawingNumber: drawingCtx.drawingNumber,
+              relatedDrawingNumber: drawingCtx.drawingNumber ?? drawingStructure.drawingNumber,
+              technicalNotes: drawingStructure.notes,
+              measurements: drawingStructure.measurements,
               technicalIntent: drawingCtx.technicalIntent,
               extractionMethod: "text_heuristic",
             },
@@ -164,7 +190,10 @@ export function buildVisualTechnicalChunks(
     // Pure table page — no drawing context
     const tables = extractTableLikeData(text);
     for (const table of tables) {
-      const tableText = buildTableChunkText(table, null);
+      let tableText = buildTableChunkText(table, null);
+      if (drawingStructure.rows.length > 0) {
+        tableText = appendStructuredLegendRows(tableText, drawingStructure.rows);
+      }
       const tableSearchText = buildSearchText({
         ...docContext,
         chunkText: tableText,
@@ -186,13 +215,18 @@ export function buildVisualTechnicalChunks(
             isLowValue: false,
             searchText: tableSearchText,
             metadata: {
+              pageType: table.tableTitle?.toLowerCase().includes("legenda do desenho")
+                ? "DRAWING_LEGEND_TABLE"
+                : "MATERIAL_TABLE",
               tableNumber: table.tableNumber,
               tableTitle: table.tableTitle,
               columns: table.columns,
               rows: table.rows,
+              tableRows: drawingStructure.rows.length > 0 ? drawingStructure.rows : table.rows,
+              asteriskItems: drawingStructure.rows.filter((row) => row.hasAsterisk),
               notes: table.notes,
               tableExtractionStatus: table.tableExtractionStatus,
-              pageType,
+              relatedDrawingNumber: drawingStructure.relatedDrawingNumber,
               extractionMethod: "text_heuristic",
             },
           },
@@ -218,7 +252,7 @@ export function buildVisualTechnicalChunks(
             isSearchable: true,
             isLowValue: false,
             searchText,
-            metadata: { tableExtractionStatus: "needs_review", pageType },
+            metadata: { tableExtractionStatus: "needs_review", pageType: "MATERIAL_TABLE" },
           },
           idx++,
         ),
@@ -227,6 +261,34 @@ export function buildVisualTechnicalChunks(
   }
 
   return chunks;
+}
+
+function inferServiceType(text: string): string | null {
+  const normalized = text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (/monofasico/.test(normalized)) return "MONOFASICO";
+  if (/bifasico/.test(normalized)) return "BIFASICO";
+  if (/trifasico/.test(normalized)) return "TRIFASICO";
+  return null;
+}
+
+function appendStructuredLegendRows(
+  tableText: string,
+  rows: ReturnType<typeof detectDrawingStructure>["rows"],
+) {
+  return [
+    tableText,
+    "",
+    "Linhas estruturadas da legenda:",
+    ...rows.map(
+      (row) =>
+        `${row.item} | ${row.description} | ${row.quantity} | responsabilidade: ${row.responsibility}`,
+    ),
+  ]
+    .join("\n")
+    .slice(0, MAX_CHUNK_CHARS);
 }
 
 function buildDrawingChunkText(

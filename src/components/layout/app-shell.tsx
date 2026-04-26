@@ -109,7 +109,7 @@ export async function CustomerShell({ children }: ShellProps) {
             <LogoutButton />
           </nav>
         </aside>
-        <main>{children}</main>
+        <main className="min-w-0">{children}</main>
       </div>
       <footer className="border-t border-slate-200 bg-white">
         <div className="mx-auto max-w-7xl px-5 py-5 text-sm text-slate-500">
@@ -165,7 +165,7 @@ export async function AdminShell({ children }: ShellProps) {
             <LogoutButton />
           </nav>
         </aside>
-        <main>{children}</main>
+        <main className="min-w-0">{children}</main>
       </div>
       <footer className="border-t border-slate-200 bg-white">
         <div className="mx-auto max-w-7xl px-5 py-5 text-sm text-slate-500">

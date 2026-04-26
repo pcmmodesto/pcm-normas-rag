@@ -37,53 +37,47 @@ export default async function AdminProcessingPage() {
         />
         <DashboardSection title="Fila de processamento">
           {versions.data.length > 0 ? (
-            <div className="overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="min-w-full divide-y divide-slate-100 text-left text-sm">
+            <div className="max-w-full overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full min-w-[980px] table-fixed divide-y divide-slate-100 text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
                   <tr>
-                    {[
-                      "Documento",
-                      "Versao",
-                      "Status",
-                      "Processamento",
-                      "Paginas",
-                      "Chunks",
-                      "Observacao",
-                      "Acao",
-                    ].map((header) => (
-                      <th className="px-4 py-3 font-semibold" key={header}>
-                        {header}
-                      </th>
-                    ))}
+                    <th className="w-[31%] px-4 py-3 font-semibold">Documento</th>
+                    <th className="w-[7%] px-3 py-3 font-semibold">Versao</th>
+                    <th className="w-[8%] px-3 py-3 font-semibold">Status</th>
+                    <th className="w-[11%] px-3 py-3 font-semibold">Processamento</th>
+                    <th className="w-[9%] px-3 py-3 font-semibold">Paginas</th>
+                    <th className="w-[8%] px-3 py-3 font-semibold">Chunks</th>
+                    <th className="w-[14%] px-3 py-3 font-semibold">Observacao</th>
+                    <th className="w-[12%] px-3 py-3 font-semibold">Acao</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white text-slate-700">
                   {versions.data.map((version) => (
                     <tr key={version.id}>
-                      <td className="whitespace-nowrap px-4 py-4">
+                      <td className="break-words px-4 py-4 font-medium text-slate-800">
                         {version.documentTitle}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-4">
+                      <td className="whitespace-nowrap px-3 py-4">
                         {version.versionLabel}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-4">
+                      <td className="whitespace-nowrap px-3 py-4">
                         {version.status}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-4">
+                      <td className="whitespace-nowrap px-3 py-4">
                         {version.processingStatus}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-4">
+                      <td className="whitespace-nowrap px-3 py-4">
                         {version.pageCount} paginas
                       </td>
-                      <td className="whitespace-nowrap px-4 py-4">
+                      <td className="whitespace-nowrap px-3 py-4">
                         {version.chunkCount} chunks
                       </td>
-                      <td className="max-w-sm px-4 py-4">
+                      <td className="break-words px-3 py-4 leading-6">
                         {version.processingError ??
                           "Aguardando processamento com extracao de texto e chunks estruturados."}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-4">
-                        <div className="flex gap-2">
+                      <td className="px-3 py-4">
+                        <div className="flex flex-col gap-2 xl:flex-row">
                           <ProcessDocumentButton versionId={version.id} />
                           <DeleteDocumentButton
                             documentId={version.documentId}

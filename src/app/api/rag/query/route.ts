@@ -3,14 +3,18 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
   AUDIENCE_LABELS,
+  buildExpandedSearchTerms,
   classifyQueryAudience,
-  classifyTechnicalIntent,
+  classifyTechnicalIntents,
+  detectDimensioningMissingContext,
   detectMissingContext,
   extractKeywords,
+  extractTechnicalEntities,
   INTENT_LABELS,
-  INTENT_REQUIRED_TERMS,
-  LEIGO_PRIORITY_TERMS,
+  isTechnicalDimensioningIntent,
   MIN_SCORE_BY_INTENT,
+  type QueryAudience,
+  type TechnicalIntent,
 } from "@/features/rag/search/intent-classifier";
 import { scoreChunkDetailed, scoreChunkForLeigo } from "@/features/rag/search/chunk-scorer";
 import { buildStructuredAnswer } from "@/features/rag/search/answer-builder";
@@ -22,6 +26,29 @@ const MIN_SCORE_LEIGO = 20;
 
 // Chunk types that get a score bonus in technical queries
 const TABLE_CHUNK_TYPES = new Set(["TABLE", "TABLE_ROW", "NORMATIVE_TABLE"]);
+const STRONG_PAGE_TYPES = new Set([
+  "TABLE",
+  "TABLE_PAGE",
+  "REQUIREMENT",
+  "TECHNICAL_CONTENT",
+  "DIMENSIONING_CRITERIA",
+  "MIXED_TECHNICAL_PAGE",
+  "TECHNICAL_DRAWING",
+  "DRAWING_NOTE",
+  "DRAWING_LEGEND_TABLE",
+  "MATERIAL_TABLE",
+  "RESPONSIBILITY_RULE",
+  "DIMENSION_REQUIREMENT",
+  "CONSOLIDATED_DRAWING_TOPIC",
+]);
+const STRONG_CHUNK_TYPES = new Set([
+  "TABLE_TEXT",
+  "TABLE",
+  "TABLE_ROW",
+  "NORMATIVE_TABLE",
+  "REQUIREMENT",
+  "DIMENSIONING_CRITERIA",
+]);
 const HIGH_VALUE_CHUNK_TYPES = new Set([
   "REQUIREMENT",
   "PROCEDURE",
@@ -59,13 +86,18 @@ type ChunkRow = {
   concessionaire: string | null;
   state_codes: string[] | null;
   document_type: string;
+  metadata: Prisma.JsonValue;
 };
 
 type ScoredChunk = ChunkRow & {
   score: number;
+  textualScore: number;
+  technicalScore: number;
+  penaltyScore: number;
   reasons: string[];
   rejected: boolean;
   rejectionReason?: string;
+  sourceRole?: "MAIN" | "AUXILIARY" | "REJECTED";
 };
 
 export async function POST(request: Request) {
@@ -84,44 +116,68 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, message: "Pergunta muito curta." }, { status: 400 });
   }
 
-  const audience = classifyQueryAudience(question);
-  const intent = classifyTechnicalIntent(question);
+  const classifiedAudience = classifyQueryAudience(question);
+  const { primary: intent, secondary: secondaryIntents } = classifyTechnicalIntents(question);
+  const audience: QueryAudience = isTechnicalDimensioningIntent(intent, secondaryIntents)
+    ? "TECNICO_DIMENSIONAMENTO"
+    : classifiedAudience;
   const productClassification = classifyQuestion(question);
-  const missingContext = detectMissingContext(question, audience);
+  const technicalEntities = extractTechnicalEntities(question);
+  const missingContext = Array.from(
+    new Set([
+      ...detectMissingContext(question, audience),
+      ...detectDimensioningMissingContext(question, [intent, ...secondaryIntents]),
+    ]),
+  );
   const keywords = extractKeywords(question);
 
-  const isLeigo = audience === "LEIGO_ATENDIMENTO" || audience === "NORMA_REFERENCIA";
+  const isLeigo =
+    (audience === "LEIGO_ATENDIMENTO" || audience === "NORMA_REFERENCIA") &&
+    !isTechnicalDimensioningIntent(intent, secondaryIntents);
 
-  const extraTerms = isLeigo
-    ? LEIGO_PRIORITY_TERMS.slice(0, 8)
-    : INTENT_REQUIRED_TERMS[intent];
-  const searchTerms = Array.from(new Set([...keywords, ...extraTerms])).slice(0, 14);
+  const expandedTerms = buildExpandedSearchTerms({
+    question,
+    keywords,
+    primaryIntent: intent,
+    secondaryIntents,
+    audience,
+  });
+  const searchTerms = Array.from(
+    new Set([...expandedTerms.map((t) => t.term), ...technicalEntities.terms.map((t) => t.toLowerCase())]),
+  ).slice(0, 36);
 
   const candidates = await fetchCandidates(searchTerms);
 
   const scored: ScoredChunk[] = candidates.map((chunk) => {
     const detail = isLeigo
       ? scoreChunkForLeigo(chunk.chunk_text, keywords, question)
-      : scoreChunkDetailed(chunk.chunk_text, intent, keywords, question);
+      : scoreChunkDetailed(chunk.chunk_text, intent, keywords, question, secondaryIntents);
 
     // Bonus for structured table chunks in technical queries
     if (!isLeigo && !detail.rejected && TABLE_CHUNK_TYPES.has(chunk.chunk_type)) {
       detail.score += 25;
+      detail.technicalScore += 25;
       detail.reasons.push("+25: chunk de tabela estruturada");
     }
 
-    applyStructuredChunkScore(detail, chunk, isLeigo);
+    applyStructuredChunkScore(detail, chunk, isLeigo, intent, secondaryIntents, question);
 
     return { ...chunk, ...detail };
   });
 
   const minScore = isLeigo ? MIN_SCORE_LEIGO : MIN_SCORE_BY_INTENT[intent];
-  const passing = scored
+  const passingAll = scored
     .filter((c) => !c.rejected && c.score >= minScore)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
+    .sort((a, b) => b.score - a.score);
+  const mainPassing = passingAll.filter((c) => !isAuxiliaryChunk(c));
+  const hasStrongTechnicalSource = isLeigo
+    ? true
+    : mainPassing.some((c) => isStrongTechnicalSource(c));
+  const requiresStrongSource = requiresStrongTechnicalSource(intent, secondaryIntents);
+  const passing = (requiresStrongSource ? mainPassing : passingAll).slice(0, 3);
 
-  const isSufficient = passing.length > 0;
+  const isSufficient =
+    passing.length > 0 && (!requiresStrongSource || hasStrongTechnicalSource);
 
   const { answerType, confidence, answer, normativeSummary } = buildStructuredAnswer({
     audience,
@@ -133,6 +189,7 @@ export async function POST(request: Request) {
       pageNumber: c.page_number,
       chunkText: c.chunk_text,
       score: c.score,
+      metadata: c.metadata,
     })),
     isSufficient,
     missingContext,
@@ -169,6 +226,7 @@ export async function POST(request: Request) {
     concessionaire: c.concessionaire,
     stateCodes: c.state_codes ?? [],
     documentType: c.document_type,
+    metadata: c.metadata,
     score: c.score,
   }));
 
@@ -186,17 +244,28 @@ export async function POST(request: Request) {
     normativeSummary,
     missingContext,
     termsSearched: searchTerms,
+    technicalEntities,
     sources,
     ...(debug
       ? {
           debugInfo: {
             intent,
             intentLabel: INTENT_LABELS[intent],
+            secondaryIntents,
+            secondaryIntentLabels: secondaryIntents.map((i) => INTENT_LABELS[i]),
             audience,
             audienceLabel: AUDIENCE_LABELS[audience],
+            classifiedAudience,
+            classifiedAudienceLabel: AUDIENCE_LABELS[classifiedAudience],
+            classificationMode: isLeigo ? "ATENDIMENTO" : "DIMENSIONAMENTO",
             keywords,
+            technicalEntities,
+            expandedTerms,
             searchTerms,
             minScore,
+            isTechnicalSourceSufficient: isSufficient,
+            hasStrongTechnicalSource,
+            hasDimensioningTableOrCriteria: passingAll.some((c) => isStrongTechnicalSource(c)),
             candidateCount: scored.length,
             candidates: scored.map((c) => ({
               chunkId: c.chunk_id,
@@ -206,6 +275,14 @@ export async function POST(request: Request) {
               pageType: c.page_type,
               technicalIntent: c.technical_intent,
               topic: c.topic,
+              metadata: c.metadata,
+              drawingNumber: getMetadataString(c.metadata, "drawingNumber"),
+              relatedTableNumber: getMetadataString(c.metadata, "relatedTableNumber") ?? getMetadataString(c.metadata, "tableNumber"),
+              tableRows: getMetadataArray(c.metadata, "tableRows"),
+              asteriskItems: getMetadataArray(c.metadata, "asteriskItems"),
+              responsibility: getMetadataResponsibilitySummary(c.metadata),
+              measurements: getMetadataArray(c.metadata, "measurements"),
+              technicalNotes: getMetadataArray(c.metadata, "technicalNotes"),
               sourceQuality: c.source_quality,
               sectionNumber: c.section_number,
               sectionTitle: c.section_title,
@@ -221,9 +298,24 @@ export async function POST(request: Request) {
                 isSizingCriteria: c.is_sizing_criteria,
               },
               score: c.score,
+              textualScore: c.textualScore,
+              technicalScore: c.technicalScore,
+              penaltyScore: c.penaltyScore,
+              finalScore: c.score,
               reasons: c.reasons,
-              rejected: c.rejected,
-              rejectionReason: c.rejectionReason,
+              rejected: c.rejected || (requiresStrongSource && !isStrongTechnicalSource(c) && c.score >= minScore),
+              rejectionReason:
+                c.rejectionReason ??
+                (requiresStrongSource && !isStrongTechnicalSource(c) && c.score >= minScore
+                  ? "Fonte auxiliar: nao e tabela/requisito/criterio de dimensionamento suficiente para resposta principal"
+                  : undefined),
+              sourceRole: c.rejected
+                ? "REJECTED"
+                : c.score < minScore
+                  ? "REJECTED"
+                  : isAuxiliaryChunk(c) || !isStrongTechnicalSource(c)
+                    ? "AUXILIARY"
+                    : "MAIN",
               textPreview: c.chunk_text.slice(0, 200),
             })),
           },
@@ -258,6 +350,7 @@ async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {
         dc.page_type,
         dc.technical_intent,
         dc.topic,
+        dc.metadata,
         dc.source_quality,
         dc.is_table,
         dc.is_figure,
@@ -280,7 +373,7 @@ async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {
         and dc.is_searchable = TRUE
         and (${conditions})
       order by dc.page_number asc
-      limit 30
+      limit 80
     `);
   } catch {
     return [];
@@ -290,17 +383,24 @@ async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {
 function applyStructuredChunkScore(
   detail: {
     score: number;
+    textualScore: number;
+    technicalScore: number;
+    penaltyScore: number;
     reasons: string[];
     rejected: boolean;
     rejectionReason?: string;
   },
   chunk: ChunkRow,
   isLeigo: boolean,
+  intent: TechnicalIntent,
+  secondaryIntents: TechnicalIntent[],
+  question: string,
 ) {
   if (detail.rejected) return;
 
   if (chunk.is_cover || chunk.is_summary || chunk.chunk_type === "SUMMARY") {
     detail.score -= 80;
+    detail.penaltyScore -= 80;
     detail.reasons.push("-80: capa/sumario/indice");
 
     if (!isLeigo) {
@@ -313,31 +413,146 @@ function applyStructuredChunkScore(
 
   if (chunk.chunk_type === "ADMINISTRATIVE" || chunk.source_quality === "LOW") {
     detail.score -= 45;
+    detail.penaltyScore -= 45;
     detail.reasons.push("-45: chunk administrativo ou baixa qualidade");
+  }
+
+  const normalizedText = normalizeForGate(chunk.chunk_text);
+  const normalizedQuestion = normalizeForGate(question);
+  const asksProvisional = /provisorio|temporaria|temporario|evento|feira|obra temporaria/.test(
+    normalizedQuestion,
+  );
+  const asksInspection = /inspecao|vistoria/.test(normalizedQuestion);
+
+  if (!isLeigo && !asksProvisional && /fornecimento provisorio|conexao temporaria/.test(normalizedText)) {
+    detail.score -= 90;
+    detail.penaltyScore -= 90;
+    detail.reasons.push("-90: fornecimento provisorio/conexao temporaria fora da pergunta");
+  }
+
+  if (!isLeigo && !asksInspection && /inspecao|vistoria/.test(normalizedText)) {
+    detail.score -= 60;
+    detail.penaltyScore -= 60;
+    detail.reasons.push("-60: inspecao/vistoria fora da pergunta");
+  }
+
+  if (!isLeigo && chunk.is_definition) {
+    detail.score -= 35;
+    detail.penaltyScore -= 35;
+    detail.reasons.push("-35: definicao usada apenas como apoio");
   }
 
   if (!isLeigo && HIGH_VALUE_CHUNK_TYPES.has(chunk.chunk_type)) {
     detail.score += 25;
+    detail.technicalScore += 25;
     detail.reasons.push("+25: tipo de chunk normativo de alto valor");
   }
 
   if (!isLeigo && chunk.is_requirement) {
     detail.score += 20;
+    detail.technicalScore += 20;
     detail.reasons.push("+20: requisito normativo detectado");
   }
 
   if (!isLeigo && chunk.is_sizing_criteria) {
     detail.score += 25;
+    detail.technicalScore += 25;
     detail.reasons.push("+25: criterio de dimensionamento detectado");
   }
 
   if (!isLeigo && chunk.is_figure) {
     detail.score += 15;
+    detail.technicalScore += 15;
     detail.reasons.push("+15: desenho/figura tecnica");
   }
 
   if (!isLeigo && chunk.technical_intent) {
-    detail.score += 10;
-    detail.reasons.push(`+10: intencao tecnica ${chunk.technical_intent}`);
+    if (chunk.technical_intent === intent || secondaryIntents.includes(chunk.technical_intent as TechnicalIntent)) {
+      detail.score += 25;
+      detail.technicalScore += 25;
+      detail.reasons.push(`+25: intencao tecnica alinhada ${chunk.technical_intent}`);
+    } else {
+      detail.score += 5;
+      detail.technicalScore += 5;
+      detail.reasons.push(`+5: intencao tecnica ${chunk.technical_intent}`);
+    }
   }
+
+  if (!isLeigo && isStrongTechnicalSource(chunk)) {
+    detail.score += 35;
+    detail.technicalScore += 35;
+    detail.reasons.push("+35: fonte forte (tabela/requisito/criterio de dimensionamento)");
+  }
+}
+
+function normalizeForGate(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function requiresStrongTechnicalSource(intent: TechnicalIntent, secondaryIntents: TechnicalIntent[]) {
+  return [intent, ...secondaryIntents].some((i) =>
+    [
+      "SERVICE_ENTRANCE_CABLE",
+      "PROTECTION",
+      "SERVICE_ENTRANCE_STANDARD",
+      "LOAD_DEMAND",
+      "DRAWING_REFERENCE",
+      "MATERIAL_RESPONSIBILITY",
+      "DIMENSION_REQUIREMENT",
+    ].includes(i),
+  );
+}
+
+function isStrongTechnicalSource(chunk: ChunkRow) {
+  const pageType = chunk.page_type ?? "";
+  return (
+    chunk.is_table ||
+    chunk.is_requirement ||
+    chunk.is_sizing_criteria ||
+    TABLE_CHUNK_TYPES.has(chunk.chunk_type) ||
+    STRONG_CHUNK_TYPES.has(chunk.chunk_type) ||
+    STRONG_PAGE_TYPES.has(pageType)
+  ) && !chunk.is_definition && !chunk.is_cover && !chunk.is_summary && chunk.chunk_type !== "ADMINISTRATIVE";
+}
+
+function isAuxiliaryChunk(chunk: ChunkRow) {
+  return (
+    chunk.is_definition ||
+    chunk.chunk_type === "DEFINITION" ||
+    /definicoes|termos e definicoes|campo de aplicacao|sumario/i.test(
+      `${chunk.section_title ?? ""} ${chunk.table_title ?? ""}`,
+    )
+  );
+}
+
+function getMetadataObject(metadata: Prisma.JsonValue): Record<string, unknown> {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>)
+    : {};
+}
+
+function getMetadataString(metadata: Prisma.JsonValue, key: string) {
+  const value = getMetadataObject(metadata)[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function getMetadataArray(metadata: Prisma.JsonValue, key: string) {
+  const value = getMetadataObject(metadata)[key];
+  return Array.isArray(value) ? value : [];
+}
+
+function getMetadataResponsibilitySummary(metadata: Prisma.JsonValue) {
+  const rows = getMetadataArray(metadata, "tableRows");
+  const concessionaireCount = rows.filter(
+    (row) =>
+      row &&
+      typeof row === "object" &&
+      "responsibility" in row &&
+      row.responsibility === "CONCESSIONARIA",
+  ).length;
+  if (concessionaireCount > 0) return `${concessionaireCount} item(ns) CONCESSIONARIA`;
+  return null;
 }

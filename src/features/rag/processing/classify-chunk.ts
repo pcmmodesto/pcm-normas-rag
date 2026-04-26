@@ -20,16 +20,17 @@ export type StructuredChunkClassification = {
 };
 
 const technicalTermPatterns: Array<[RegExp, string]> = [
-  [/subesta[cç][aã]o|cabine prim[aá]ria/i, "subestacao"],
-  [/ramal\s+de\s+(entrada|liga[cç][aã]o)/i, "ramal_entrada"],
-  [/padr[aã]o\s+de\s+entrada/i, "padrao_entrada"],
-  [/disjuntor|prote[cç][aã]o|fus[ií]vel|chave\s+fus[ií]vel/i, "protecao"],
+  [/subestacao|cabine primaria/i, "subestacao"],
+  [/ramal\s+de\s+(entrada|ligacao)/i, "ramal_entrada"],
+  [/padrao\s+de\s+entrada/i, "padrao_entrada"],
+  [/disjuntor|protecao|fusivel|chave\s+fusivel/i, "protecao"],
   [/condutor|cabo|bitola|mm[²2]|awg/i, "cabos_condutores"],
-  [/medidor|medi[cç][aã]o|caixa\s+de\s+medi[cç][aã]o/i, "medicao"],
+  [/medidor|medicao|caixa\s+de\s+medicao/i, "medicao"],
   [/aterramento|haste|terra|spda|para-?raios/i, "aterramento_spda"],
   [/demanda|carga\s+instalada|kva|kw/i, "demanda_carga"],
-  [/afastamento|edifica[cç][aã]o|janela|sacada|muro|dist[aâ]ncia/i, "afastamento"],
-  [/gera[cç][aã]o\s+distribu[ií]da|microgera[cç][aã]o|minigera[cç][aã]o|\bgd\b/i, "geracao_distribuida"],
+  [/afastamento|edificacao|janela|sacada|muro|distancia/i, "afastamento"],
+  [/responsabilidade|concessionaria|\*/i, "responsabilidade_fornecimento"],
+  [/legenda\s+do\s+desenho|desenho\s+\d+/i, "desenho_normativo"],
 ];
 
 export function classifyStructuredChunk(chunk: SmartChunk): StructuredChunkClassification {
@@ -41,10 +42,13 @@ export function classifyStructuredChunk(chunk: SmartChunk): StructuredChunkClass
     chunk.chunkType === "TABLE" ||
     chunk.chunkType === "TABLE_ROW" ||
     chunk.chunkType === "NORMATIVE_TABLE" ||
+    pageType === "DRAWING_LEGEND_TABLE" ||
+    pageType === "MATERIAL_TABLE" ||
     Boolean(chunk.tableNumber) ||
     /tabela\s+\d+/i.test(chunk.text);
   const isFigure =
     chunk.chunkType === "NORMATIVE_DRAWING" ||
+    pageType === "TECHNICAL_DRAWING" ||
     pageType === "DRAWING_PAGE" ||
     pageType === "MIXED_TECHNICAL_PAGE" ||
     /desenho\s+\d+|figura\s+\d+|diagrama|esquema/i.test(chunk.text);
@@ -52,22 +56,28 @@ export function classifyStructuredChunk(chunk: SmartChunk): StructuredChunkClass
   const isCover = pageType === "COVER_PAGE";
   const isDefinition =
     chunk.chunkType === "DEFINITION" ||
-    /\b(defini[cç][aã]o|termos\s+e\s+defini[cç][oõ]es)\b/i.test(chunk.text);
+    /\b(definicao|termos\s+e\s+definicoes)\b/i.test(lower);
   const isProcedure =
     chunk.chunkType === "PROCEDURE" ||
-    /\b(procedimento|solicita[cç][aã]o|etapas?|passo\s+a\s+passo)\b/i.test(chunk.text);
+    /\b(procedimento|solicitacao|etapas?|passo\s+a\s+passo)\b/i.test(lower);
   const isSizingCriteria =
-    /dimensionamento|demanda|carga\s+instalada|kva|kw|mm[²2]|disjuntor|bitola|corrente/i.test(
-      chunk.text,
+    pageType === "DIMENSION_REQUIREMENT" ||
+    /dimensionamento|demanda|carga\s+instalada|kva|kw|mm[²2]|disjuntor|bitola|corrente|altura|cota/.test(
+      lower,
     );
   const isRequirement =
     chunk.chunkType === "REQUIREMENT" ||
-    /\b(deve|dever[aã]o|obrigat[oó]rio|limite|m[ií]nimo|crit[eé]rio|exig[eê]ncia)\b/i.test(
-      chunk.text,
+    pageType === "DIMENSION_REQUIREMENT" ||
+    pageType === "RESPONSIBILITY_RULE" ||
+    /\b(deve|deverao|obrigatorio|limite|minimo|criterio|exigencia|responsabilidade)\b/.test(
+      lower,
     );
-  const voltageLevel = detectVoltageLevel(lower);
+  const voltageLevel = getStringMetadata(chunk, "voltageLevel") ?? detectVoltageLevel(lower);
   const technicalIntent = getStringMetadata(chunk, "technicalIntent") ?? inferTechnicalIntent(lower);
-  const topic = inferTopic(technicalTerms, technicalIntent, isFigure, isTable);
+  const topic =
+    getStringMetadata(chunk, "topic") ??
+    getStringMetadata(chunk, "drawingTitle") ??
+    inferTopic(technicalTerms, technicalIntent, isFigure, isTable);
   const sourceQuality = inferSourceQuality({
     chunk,
     isTable,
@@ -124,7 +134,7 @@ function inferTechnicalIntent(normalizedText: string) {
   if (/ramal|cabo|condutor|bitola/.test(normalizedText)) return "SERVICE_ENTRANCE_CABLE";
   if (/disjuntor|protecao|fusivel/.test(normalizedText)) return "PROTECTION";
   if (/demanda|carga|kva|kw/.test(normalizedText)) return "LOAD_DEMAND";
-  if (/medicao|medidor/.test(normalizedText)) return "METERING";
+  if (/medicao|medidor|caixa de medicao/.test(normalizedText)) return "METERING";
   if (/aterramento|spda|para-raios/.test(normalizedText)) return "GROUNDING";
   return null;
 }
@@ -135,11 +145,14 @@ function inferTopic(
   isFigure: boolean,
   isTable: boolean,
 ) {
+  if (technicalTerms.includes("desenho_normativo")) return "desenho_normativo";
+  if (technicalTerms.includes("responsabilidade_fornecimento")) return "responsabilidade_fornecimento";
   if (technicalTerms.includes("afastamento")) return "afastamento_condutores_edificacoes";
   if (technicalTerms.includes("subestacao")) return "subestacao";
   if (technicalTerms.includes("cabos_condutores")) return "cabos_condutores";
   if (technicalTerms.includes("protecao")) return "protecao";
   if (technicalTerms.includes("demanda_carga")) return "demanda_carga_instalada";
+  if (technicalTerms.includes("medicao")) return "medicao";
   if (isFigure && isTable) return "desenho_tabela_normativa";
   return technicalIntent ? technicalIntent.toLowerCase() : null;
 }

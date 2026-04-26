@@ -137,14 +137,27 @@ function mapCategory(intent: TechnicalIntent, question: string): TechnicalCatego
     case "SERVICE_ENTRANCE_STANDARD":
       return "padrao_entrada";
     case "SERVICE_CONNECTION_DOCUMENTS":
+    case "DOCUMENTATION":
+    case "SERVICE_REQUEST":
       return "documentos_necessarios";
     case "LOAD_DEMAND":
       return "demanda_carga_instalada";
+    case "PROTECTION":
+      return "protecao";
+    case "SUBSTATION":
+      return "subestacao";
+    case "DRAWING_REFERENCE":
+      return "criterios_projeto";
+    case "MATERIAL_RESPONSIBILITY":
+      return "materiais_e_equipamentos";
+    case "DIMENSION_REQUIREMENT":
+      return "medicao";
     case "METERING":
       return "medicao";
     case "GROUNDING":
       return normalized.includes("spda") ? "spda" : "aterramento";
     case "VOLTAGE_SUPPLY":
+    case "VOLTAGE_LEVEL":
       return "concessionaria_estado";
     case "GENERAL_LOW_VOLTAGE":
       return "baixa_tensao";
