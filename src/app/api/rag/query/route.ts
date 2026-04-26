@@ -14,13 +14,14 @@ import {
 } from "@/features/rag/search/intent-classifier";
 import { scoreChunkDetailed, scoreChunkForLeigo } from "@/features/rag/search/chunk-scorer";
 import { buildStructuredAnswer } from "@/features/rag/search/answer-builder";
+import { classifyQuestion } from "@/features/rag/lib/classify-question";
 
 export const runtime = "nodejs";
 
 const MIN_SCORE_LEIGO = 20;
 
 // Chunk types that get a score bonus in technical queries
-const TABLE_CHUNK_TYPES = new Set(["TABLE", "TABLE_ROW"]);
+const TABLE_CHUNK_TYPES = new Set(["TABLE", "TABLE_ROW", "NORMATIVE_TABLE"]);
 
 type ChunkRow = {
   chunk_id: string;
@@ -64,6 +65,7 @@ export async function POST(request: Request) {
 
   const audience = classifyQueryAudience(question);
   const intent = classifyTechnicalIntent(question);
+  const productClassification = classifyQuestion(question);
   const missingContext = detectMissingContext(question, audience);
   const keywords = extractKeywords(question);
 
@@ -139,6 +141,7 @@ export async function POST(request: Request) {
     intentLabel: INTENT_LABELS[intent],
     audience,
     audienceLabel: AUDIENCE_LABELS[audience],
+    classification: productClassification,
     answerType,
     confidence,
     isSufficient,

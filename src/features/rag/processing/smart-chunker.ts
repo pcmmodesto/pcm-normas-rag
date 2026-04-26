@@ -1,5 +1,6 @@
 import type { ExtractedPdfPage } from "./extract-pdf-text";
-import { classifyPageContent } from "./page-classifier";
+import { detectTechnicalPageType, isLowValuePageType } from "./detect-technical-page-type";
+import { buildVisualTechnicalChunks } from "./build-visual-technical-chunks";
 import { buildSearchText } from "./technical-normalizer";
 
 export type SmartChunk = {
@@ -15,6 +16,7 @@ export type SmartChunk = {
   isSearchable: boolean;
   isLowValue: boolean;
   searchText: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type DocContext = {
@@ -279,43 +281,63 @@ export async function smartChunkDocument(
   let globalIndex = 0;
 
   for (const page of pages) {
-    const classification = classifyPageContent(page.text, page.pageNumber);
-    const isLowValue = classification.isLowValue;
+    const pageType = detectTechnicalPageType(page.text, page.pageNumber);
+    const isLowValue = isLowValuePageType(pageType);
 
-    const pageChunks = processPageText(
-      page.text,
-      page.pageNumber,
-      globalIndex,
-      docContext,
-      isLowValue,
-    );
+    let pageChunks: SmartChunk[];
 
-    // If page is low-value but we got no chunks (e.g., very short page), skip
+    if (
+      pageType === "DRAWING_PAGE" ||
+      pageType === "MIXED_TECHNICAL_PAGE" ||
+      pageType === "TABLE_PAGE"
+    ) {
+      // Visual/table pages get specialized chunking
+      pageChunks = buildVisualTechnicalChunks(
+        page.text,
+        page.pageNumber,
+        pageType,
+        docContext,
+        globalIndex,
+      );
+    } else {
+      // Text, admin, cover, summary pages: section-based chunking
+      pageChunks = processPageText(
+        page.text,
+        page.pageNumber,
+        globalIndex,
+        docContext,
+        isLowValue,
+      );
+    }
+
+    // Fallback for non-empty pages that produced no chunks
     if (pageChunks.length === 0 && page.text.trim().length >= MIN_CHUNK_CHARS) {
-      // Minimal fallback chunk for non-empty low-value pages
+      const chunkType = isLowValue ? "ADMINISTRATIVE" : "TEXT";
       const searchText = buildSearchText({
         ...docContext,
         chunkText: page.text.trim().slice(0, 500),
-        chunkType: isLowValue ? "ADMINISTRATIVE" : "TEXT",
+        chunkType,
       });
-      allChunks.push({
-        pageNumber: page.pageNumber,
-        chunkIndex: globalIndex++,
-        text: page.text.trim().slice(0, 500),
-        chunkType: isLowValue ? "ADMINISTRATIVE" : "TEXT",
-        sectionNumber: null,
-        sectionTitle: null,
-        parentSectionNumber: null,
-        tableNumber: null,
-        tableTitle: null,
-        isSearchable: !isLowValue,
-        isLowValue,
-        searchText,
-      });
-    } else {
-      allChunks.push(...pageChunks);
-      globalIndex += pageChunks.length;
+      pageChunks = [
+        {
+          pageNumber: page.pageNumber,
+          chunkIndex: globalIndex,
+          text: page.text.trim().slice(0, 500),
+          chunkType,
+          sectionNumber: null,
+          sectionTitle: null,
+          parentSectionNumber: null,
+          tableNumber: null,
+          tableTitle: null,
+          isSearchable: !isLowValue,
+          isLowValue,
+          searchText,
+        },
+      ];
     }
+
+    allChunks.push(...pageChunks);
+    globalIndex += pageChunks.length;
   }
 
   // Re-assign sequential chunkIndex across all chunks
