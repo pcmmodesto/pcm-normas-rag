@@ -13,6 +13,7 @@ export const adminNavigation = [
   { href: "/admin/upload", label: "Enviar norma" },
   { href: "/admin/documents", label: "Documentos" },
   { href: "/admin/processing", label: "Pipeline de documentos" },
+  { href: "/admin/normative-tables", label: "Tabelas normativas" },
   { href: "/admin/rag-debug", label: "Diagnostico RAG" },
   { href: "/admin/users", label: "Usuarios" },
   { href: "/admin/subscriptions", label: "Assinaturas" },

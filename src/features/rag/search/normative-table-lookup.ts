@@ -95,7 +95,11 @@ export function shouldUseTableLookup(entities: TechnicalEntities) {
     Boolean(entities.installedLoadKva) ||
     entities.hasServiceDrop ||
     entities.hasServiceEntranceStandard ||
-    entities.hasMetering
+    entities.hasMetering ||
+    entities.hasClearance ||
+    entities.hasHeight ||
+    entities.hasMaterials ||
+    Boolean(entities.drawingNumber)
   );
 }
 
@@ -230,6 +234,7 @@ async function queryRows(params: {
       and ${params.loadKw} <= ntr.load_max_kw
       and (${params.state}::text is null or nt.state ilike ${`%${params.state ?? ""}%`} or td.state_codes @> ARRAY[${params.state ?? ""}]::text[])
     order by
+      case when nt.validation_status = 'VALIDADA' then 0 else 1 end,
       case when nt.table_number = '2' then 0 else 1 end,
       ntr.row_index asc
     limit 5

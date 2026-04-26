@@ -456,7 +456,9 @@ model DocumentVersion {
   pages      DocumentPage[]
   chunks     DocumentChunk[]
   tables     TechnicalTable[]
-  normativeTables NormativeTable[]
+  normativeTables  NormativeTable[]
+  normativeFigures NormativeFigure[]
+  normativeNotes   NormativeNote[]
   abacos     TechnicalAbacus[]
 
   @@unique([documentId, versionLabel])
@@ -772,18 +774,104 @@ model NormativeTable {
   state             String?
   voltage           String?
   category          String?
+  validationStatus  String   @default("NAO_VALIDADA") @map("validation_status")
+  validationNotes   String?  @map("validation_notes")
+  validatedAt       DateTime? @map("validated_at")
   sourceText        String?  @map("source_text")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   documentVersion DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
   rows            NormativeTableRow[]
+  notes           NormativeNote[]
 
   @@index([documentVersionId])
   @@index([documentId])
   @@index([tableNumber])
   @@index([state, voltage])
   @@map("normative_tables")
+}
+
+model NormativeFigure {
+  id                String   @id @default(cuid())
+  documentVersionId String   @map("document_version_id")
+  documentId        String   @map("document_id")
+  figureNumber      String?  @map("figure_number")
+  title             String
+  pageNumber        Int      @map("page_number")
+  figureType        String?  @map("figure_type")
+  topic             String?
+  voltage           String?
+  serviceType       String?  @map("service_type")
+  relatedTableNumber String? @map("related_table_number")
+  sourceText        String?  @map("source_text")
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  documentVersion DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  items           NormativeFigureItem[]
+  notes           NormativeNote[]
+
+  @@index([documentVersionId])
+  @@index([documentId])
+  @@index([figureNumber])
+  @@index([relatedTableNumber])
+  @@map("normative_figures")
+}
+
+model NormativeFigureItem {
+  id             String   @id @default(cuid())
+  figureId       String   @map("figure_id")
+  itemCode       String?  @map("item_code")
+  description    String
+  quantity       String?
+  hasAsterisk    Boolean  @default(false) @map("has_asterisk")
+  responsibility String   @default("NAO_INFORMADO")
+  rawText        String?  @map("raw_text")
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  figure NormativeFigure @relation(fields: [figureId], references: [id], onDelete: Cascade)
+
+  @@index([figureId])
+  @@index([responsibility])
+  @@map("normative_figure_items")
+}
+
+model NormativeNote {
+  id                String   @id @default(cuid())
+  documentVersionId String   @map("document_version_id")
+  documentId        String   @map("document_id")
+  tableId           String?  @map("table_id")
+  figureId          String?  @map("figure_id")
+  noteNumber        String?  @map("note_number")
+  noteType          String   @map("note_type")
+  title             String?
+  text              String
+  measurementName   String?  @map("measurement_name")
+  value             Float?
+  tolerance         Float?
+  unit              String?
+  minValue          Float?   @map("min_value")
+  maxValue          Float?   @map("max_value")
+  pageNumber        Int      @map("page_number")
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  documentVersion DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+  table           NormativeTable? @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  figure          NormativeFigure? @relation(fields: [figureId], references: [id], onDelete: Cascade)
+
+  @@index([documentVersionId])
+  @@index([documentId])
+  @@index([tableId])
+  @@index([figureId])
+  @@index([noteType])
+  @@index([noteNumber])
+  @@map("normative_notes")
 }
 
 model NormativeTableRow {
