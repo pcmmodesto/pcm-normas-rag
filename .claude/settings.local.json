@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs -I {} basename {})",
+      "Bash(node -e \"const unpdf = require\\('unpdf'\\); console.log\\(Object.keys\\(unpdf\\)\\);\")",
+      "Bash(npx prisma *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(bash -c 'git status --porcelain | grep -q . && echo \"has changes\" || echo \"clean\"')",
+      "Bash(node -e \"const s = require\\('fs'\\).readFileSync\\('.claude/settings.local.json','utf8'\\); const j = JSON.parse\\(s\\); console.log\\(j.hooks.Stop[0].hooks[0].command\\);\")",
+      "Bash(node -e ' *)"
+    ]
+  }
+}
