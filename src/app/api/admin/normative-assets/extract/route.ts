@@ -155,7 +155,7 @@ async function extractWithOpenAI({
         },
       ],
       temperature: 0,
-      max_output_tokens: 4000,
+      max_output_tokens: 8000,
     }),
   });
 
@@ -186,7 +186,7 @@ async function extractWithAnthropic({
     },
     body: JSON.stringify({
       model: process.env.ANTHROPIC_EXTRACTION_MODEL ?? "claude-sonnet-4-20250514",
-      max_tokens: 4000,
+      max_tokens: 8000,
       temperature: 0,
       messages: [
         {
@@ -308,9 +308,24 @@ Regras para tipos:
   "ALVORADA; 220; NORTE"
   "01*; Alca pre-formada para servico para cabo multiplexado; 2 und; CONCESSIONARIA"
 - Desenhos/detalhes/legendas: genericRowsText deve listar itens/cotas/componentes, e notesText deve listar notas.
+- Se o desenho/detalhe contiver uma tabela tecnica embutida, preserve essa tabela em genericRowsText:
+  - A primeira linha deve ser o cabecalho real, com colunas separadas por ponto e virgula.
+  - Cada linha seguinte deve representar exatamente uma linha da tabela.
+  - Nao junte varias linhas da tabela em uma unica linha.
+  - Nao resuma valores numericos, codigos, dimensoes, materiais ou resistencias.
+  - Se uma celula estiver ilegivel, use "[ilegivel]" nessa celula e adicione aviso em warnings.
+- Para desenhos com cotas:
+  - description deve explicar o que o desenho representa.
+  - genericRowsText deve conter primeiro a tabela embutida, se houver; depois itens/cotas/componentes em linhas separadas.
+  - notesText deve conter notas, chamadas e observacoes fora da tabela.
 - Se houver asterisco e nota de responsabilidade da concessionaria, marque responsabilidade CONCESSIONARIA.
 - Se for ${hasPdf ? "PDF" : "imagem"}, extraia apenas o que esta visivel/legivel.
 - Para tabelas de materiais, dimensoes ou condutores, preserve todas as colunas no genericRowsText com cabecalho claro na primeira linha.
+- Exemplos de genericRowsText para desenho/tabela de material:
+  "ITEM; CODIGO; A; B; C; D; E; F; MATERIAL; CHAPA; RESISTENCIA daN"
+  "1; 132210019; 5000; 1100; 2550; 100; 2450; 70; [material visivel]; 2; 50"
+  "2; 132210023; 7000; 1300; 4350; 100; 2650; 70; [material visivel]; 2; 70"
+- Antes de responder, conte mentalmente as linhas visiveis da tabela e confirme que dimensioningRows ou genericRowsText tem a mesma quantidade de linhas de dados.
 
 Retorne somente JSON valido no formato:
 {
