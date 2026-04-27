@@ -37,7 +37,7 @@ export default async function AdminNormativeTablesPage() {
         <PageHeader
           eyebrow="Base estruturada"
           title="Tabelas normativas"
-          description="Curadoria das tabelas extraidas do PDF. Use esta tela para validar e corrigir linhas que o chat tecnico consulta antes do RAG textual."
+          description="Curadoria das tabelas extraidas ou importadas. Dimensionamento alimenta calculo; outras tabelas, desenhos e notas ficam como ativos auditaveis para consulta tecnica."
         />
         <AdminWarning
           title="A consulta de tabelas estruturadas encontrou um problema"
@@ -48,7 +48,7 @@ export default async function AdminNormativeTablesPage() {
             href="/admin/normative-tables/import-manual"
             className="rounded-xl bg-[#123C7C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0A1633]"
           >
-            + Importar tabela manualmente
+            + Importar ativo manualmente
           </Link>
         </div>
         <DashboardSection title="Tabelas extraidas e importadas">

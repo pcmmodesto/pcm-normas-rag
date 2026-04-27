@@ -56,8 +56,8 @@ export default async function ImportManualPage() {
       <div className="space-y-6">
         <PageHeader
           eyebrow="Importacao manual"
-          title="Importar tabela normativa"
-          description="Carregue 1 ou 2 imagens ou PDFs como referencia. Preencha e valide cada linha antes de salvar. So entra no banco apos sua confirmacao."
+          title="Importar ativo normativo"
+          description="Carregue imagens ou PDFs de tabelas, desenhos, detalhes, legendas, notas e requisitos. Estruture os dados, revise e valide antes de liberar como fonte tecnica."
         />
         <ImportManualClient versions={versions} />
       </div>

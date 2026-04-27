@@ -15,7 +15,7 @@ export const adminNavigation = [
   { href: "/admin/processing", label: "Pipeline de documentos" },
   { href: "/admin/normative-assets", label: "Ativos normativos" },
   { href: "/admin/normative-tables", label: "Tabelas normativas" },
-  { href: "/admin/normative-tables/import-manual", label: "Importar tabela" },
+  { href: "/admin/normative-tables/import-manual", label: "Importar ativo" },
   { href: "/admin/rag-debug", label: "Diagnostico RAG" },
   { href: "/admin/users", label: "Usuarios" },
   { href: "/admin/subscriptions", label: "Assinaturas" },
