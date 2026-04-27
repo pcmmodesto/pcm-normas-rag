@@ -35,6 +35,21 @@ type RowInput = {
   notes: string;
 };
 
+type ExtractedAsset = {
+  assetType?: AssetType;
+  category?: string;
+  code?: string;
+  number?: string;
+  title?: string;
+  voltage?: string;
+  description?: string;
+  genericRowsText?: string;
+  notesText?: string;
+  dimensioningRows?: Array<Record<string, unknown>>;
+  confidence?: string;
+  warnings?: string[];
+};
+
 const ASSET_TYPES: Array<{ value: AssetType; label: string; hint: string }> = [
   { value: "TABLE", label: "Tabela", hint: "Dimensionamento, demanda, potencia, municipio ou materiais." },
   { value: "DRAWING", label: "Desenho", hint: "Padrao construtivo, caixa, poste, entrada, afastamento." },
@@ -86,6 +101,31 @@ function emptyRow(): RowInput {
 function toNum(v: string): number | null {
   const n = parseFloat(v.replace(",", "."));
   return Number.isFinite(n) ? n : null;
+}
+
+function valueToString(value: unknown) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function rowFromExtracted(input: Record<string, unknown>): RowInput {
+  return {
+    _key: mkKey(),
+    supplyType: valueToString(input.supplyType || "TRIFASICO"),
+    loadMinKw: valueToString(input.loadMinKw),
+    loadMaxKw: valueToString(input.loadMaxKw),
+    breakerAmp: valueToString(input.breakerAmp),
+    breakerType: valueToString(input.breakerType),
+    copperConcentricMm2: valueToString(input.copperConcentricMm2),
+    copperMultiplexedMm2: valueToString(input.copperMultiplexedMm2),
+    aluminumDuplexMm2: valueToString(input.aluminumDuplexMm2),
+    aluminumTriplexMm2: valueToString(input.aluminumTriplexMm2),
+    aluminumQuadruplexMm2: valueToString(input.aluminumQuadruplexMm2),
+    galvanizedSteelConduitInch: valueToString(input.galvanizedSteelConduitInch),
+    customerPhaseNeutralConductorMm2: valueToString(input.customerPhaseNeutralConductorMm2),
+    groundingConductorMm2: valueToString(input.groundingConductorMm2),
+    groundingConduitInch: valueToString(input.groundingConduitInch),
+    notes: valueToString(input.notes),
+  };
 }
 
 function FileSlot({
@@ -200,6 +240,7 @@ export function ImportManualClient({ versions }: { versions: DocVersionOption[] 
   const [notesText, setNotesText] = useState("");
   const [rows, setRows] = useState<RowInput[]>([emptyRow()]);
   const [submitting, setSubmitting] = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
 
   const purpose = ASSET_PURPOSES.find((item) => item.value === meta.category) ?? ASSET_PURPOSES[0];
@@ -245,6 +286,70 @@ export function ImportManualClient({ versions }: { versions: DocVersionOption[] 
       next.splice(idx + 1, 0, { ...prev[idx], _key: mkKey() });
       return next;
     });
+  }
+
+  async function handleExtractFromEvidence() {
+    setFeedback(null);
+    const source = previews[0] ?? previews[1];
+    if (!source) {
+      setFeedback({ ok: false, message: "Carregue uma imagem ou PDF antes de extrair." });
+      return;
+    }
+
+    const form = new FormData();
+    form.set("file", source.file, source.name);
+    form.set("assetType", assetType);
+    form.set("category", meta.category);
+    form.set("code", meta.code);
+    form.set("number", meta.number);
+    form.set("title", meta.title);
+    form.set("voltage", meta.voltage);
+    form.set("printedPage", meta.printedPage);
+
+    setExtracting(true);
+    try {
+      const response = await fetch("/api/admin/normative-assets/extract", {
+        method: "POST",
+        body: form,
+      });
+      const data = (await response.json()) as {
+        ok: boolean;
+        message?: string;
+        extracted?: ExtractedAsset;
+      };
+      if (!data.ok || !data.extracted) {
+        setFeedback({ ok: false, message: data.message ?? "Nao foi possivel extrair os dados." });
+        return;
+      }
+
+      const extracted = data.extracted;
+      if (extracted.assetType) setAssetType(extracted.assetType);
+      setMeta((current) => ({
+        ...current,
+        category: extracted.category || current.category,
+        code: extracted.code || current.code,
+        number: extracted.number || current.number,
+        title: extracted.title || current.title,
+        voltage: extracted.voltage || current.voltage,
+        method: extracted.category === "SERVICE_ENTRANCE_SIZING" ? current.method : "CONSULTA",
+        tags: current.tags || [extracted.category, extracted.code].filter(Boolean).join(", "),
+      }));
+      if (extracted.description) setDescription(extracted.description);
+      if (extracted.genericRowsText) setGenericRowsText(extracted.genericRowsText);
+      if (extracted.notesText) setNotesText(extracted.notesText);
+      if (Array.isArray(extracted.dimensioningRows) && extracted.dimensioningRows.length > 0) {
+        setRows(extracted.dimensioningRows.map(rowFromExtracted));
+      }
+      const warnings = extracted.warnings?.length ? ` Avisos: ${extracted.warnings.join(" ")}` : "";
+      setFeedback({
+        ok: true,
+        message: `${data.message ?? "Extracao concluida."} Confianca: ${extracted.confidence ?? "media"}.${warnings}`,
+      });
+    } catch (error) {
+      setFeedback({ ok: false, message: error instanceof Error ? error.message : "Falha ao chamar extracao visual." });
+    } finally {
+      setExtracting(false);
+    }
   }
 
   async function handleSubmit(nextStatus: ValidationStatus) {
@@ -378,6 +483,20 @@ export function ImportManualClient({ versions }: { versions: DocVersionOption[] 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FileSlot label="Imagem / PDF 1" preview={previews[0]} onFile={(f) => handleFile(0, f)} onClear={() => clearFile(0)} />
             <FileSlot label="Imagem / PDF 2 (opcional)" preview={previews[1]} onFile={(f) => handleFile(1, f)} onClear={() => clearFile(1)} />
+            <div className="sm:col-span-2 rounded-xl border border-sky-100 bg-sky-50 p-3 text-sm text-sky-900">
+              <p>
+                Para tabela escaneada ou desenho, prefira imagem recortada so da tabela/detalhe.
+                PDF funciona melhor quando a pagina esta nitida e curta.
+              </p>
+              <button
+                type="button"
+                onClick={handleExtractFromEvidence}
+                disabled={extracting || (!previews[0] && !previews[1])}
+                className="mt-3 rounded-lg bg-[#123C7C] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#0A1633] disabled:opacity-50"
+              >
+                {extracting ? "Extraindo dados..." : "Extrair dados da imagem/PDF"}
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
