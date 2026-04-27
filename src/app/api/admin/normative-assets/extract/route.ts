@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, message: "Apenas administradores podem extrair ativos normativos." }, { status: 403 });
   }
 
-  const openAiApiKey = process.env.OPENAI_API_KEY;
+  const openAiApiKey = getEnv("OPENAI_API_KEY");
   const anthropicApiKey = getAnthropicApiKey();
   if (!openAiApiKey && !anthropicApiKey) {
     return NextResponse.json(
@@ -320,7 +320,12 @@ function extractAnthropicOutputText(payload: Record<string, unknown>) {
 }
 
 function getAnthropicApiKey() {
-  return process.env.ANTHROPIC_API_KEY ?? process.env.ANTROPIC_API_KEY;
+  return getEnv("ANTHROPIC_API_KEY") ?? getEnv("ANTROPIC_API_KEY");
+}
+
+function getEnv(key: string) {
+  const value = process.env[key]?.trim();
+  return value || undefined;
 }
 
 function parseJsonObject(text: string): ExtractedAsset | null {
