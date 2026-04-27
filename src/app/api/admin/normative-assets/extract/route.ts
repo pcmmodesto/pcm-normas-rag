@@ -5,6 +5,14 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
+const MAX_TOTAL_FILE_BYTES = 18 * 1024 * 1024;
+
+type EvidenceFile = {
+  name: string;
+  mediaType: string;
+  base64Data: string;
+  isPdf: boolean;
+};
 
 type ExtractedAsset = {
   assetType?: string;
@@ -44,15 +52,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, message: "Formulario invalido." }, { status: 400 });
   }
 
-  const file = form.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return NextResponse.json({ ok: false, message: "Envie uma imagem ou PDF para extrair." }, { status: 400 });
-  }
-  if (file.size > MAX_FILE_BYTES) {
+  let files: EvidenceFile[];
+  try {
+    files = await readEvidenceFiles(form);
+  } catch (error) {
     return NextResponse.json(
-      { ok: false, message: "Arquivo muito grande. Use um recorte da tabela/desenho com ate 12 MB." },
+      { ok: false, message: error instanceof Error ? error.message : "Evidencia invalida para extracao." },
       { status: 400 },
     );
+  }
+  if (!files.length) {
+    return NextResponse.json({ ok: false, message: "Envie uma imagem ou PDF para extrair." }, { status: 400 });
   }
 
   const hints = {
@@ -64,28 +74,18 @@ export async function POST(request: Request) {
     voltage: stringField(form, "voltage"),
     printedPage: stringField(form, "printedPage"),
   };
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const mediaType = file.type || guessMediaType(file.name);
-  const base64Data = bytes.toString("base64");
-  const isPdf = mediaType.includes("pdf") || file.name.toLowerCase().endsWith(".pdf");
 
   try {
-    const prompt = buildPrompt(hints, isPdf);
+    const prompt = buildPrompt(hints, files);
     const outputText = anthropicApiKey
       ? await extractWithAnthropic({
           apiKey: anthropicApiKey,
-          base64Data,
-          fileName: file.name,
-          isPdf,
-          mediaType,
+          files,
           prompt,
         })
       : await extractWithOpenAI({
           apiKey: openAiApiKey!,
-          base64Data,
-          fileName: file.name,
-          isPdf,
-          mediaType,
+          files,
           prompt,
         });
     const parsed = parseJsonObject(outputText);
@@ -116,20 +116,13 @@ export async function POST(request: Request) {
 
 async function extractWithOpenAI({
   apiKey,
-  base64Data,
-  fileName,
-  isPdf,
-  mediaType,
+  files,
   prompt,
 }: {
   apiKey: string;
-  base64Data: string;
-  fileName: string;
-  isPdf: boolean;
-  mediaType: string;
+  files: EvidenceFile[];
   prompt: string;
 }) {
-  const fileData = `data:${mediaType};base64,${base64Data}`;
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -142,20 +135,22 @@ async function extractWithOpenAI({
         {
           role: "user",
           content: [
+            ...files.map((file) =>
+              file.isPdf
+                ? {
+                    type: "input_file",
+                    filename: file.name || "norma.pdf",
+                    file_data: `data:${file.mediaType};base64,${file.base64Data}`,
+                  }
+                : {
+                    type: "input_image",
+                    image_url: `data:${file.mediaType};base64,${file.base64Data}`,
+                  },
+            ),
             {
               type: "input_text",
               text: prompt,
             },
-            isPdf
-              ? {
-                  type: "input_file",
-                  filename: fileName || "norma.pdf",
-                  file_data: fileData,
-                }
-              : {
-                  type: "input_image",
-                  image_url: fileData,
-                },
           ],
         },
       ],
@@ -175,16 +170,11 @@ async function extractWithOpenAI({
 
 async function extractWithAnthropic({
   apiKey,
-  base64Data,
-  isPdf,
-  mediaType,
+  files,
   prompt,
 }: {
   apiKey: string;
-  base64Data: string;
-  fileName: string;
-  isPdf: boolean;
-  mediaType: string;
+  files: EvidenceFile[];
   prompt: string;
 }) {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -202,23 +192,25 @@ async function extractWithAnthropic({
         {
           role: "user",
           content: [
-            isPdf
-              ? {
-                  type: "document",
-                  source: {
-                    type: "base64",
-                    media_type: "application/pdf",
-                    data: base64Data,
+            ...files.map((file) =>
+              file.isPdf
+                ? {
+                    type: "document",
+                    source: {
+                      type: "base64",
+                      media_type: "application/pdf",
+                      data: file.base64Data,
+                    },
+                  }
+                : {
+                    type: "image",
+                    source: {
+                      type: "base64",
+                      media_type: file.mediaType,
+                      data: file.base64Data,
+                    },
                   },
-                }
-              : {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    media_type: mediaType,
-                    data: base64Data,
-                  },
-                },
+            ),
             {
               type: "text",
               text: prompt,
@@ -238,19 +230,62 @@ async function extractWithAnthropic({
   return extractAnthropicOutputText(payload);
 }
 
-function buildPrompt(hints: Record<string, string | null>, isPdf: boolean) {
+async function readEvidenceFiles(form: FormData): Promise<EvidenceFile[]> {
+  const candidates = [
+    ...form.getAll("files"),
+    ...["file", "file2"].map((key) => form.get(key)),
+  ];
+  const files: File[] = [];
+  for (const candidate of candidates) {
+    if (!(candidate instanceof File) || candidate.size === 0) continue;
+    if (files.some((file) => file.name === candidate.name && file.size === candidate.size)) continue;
+    files.push(candidate);
+  }
+
+  let totalSize = 0;
+  for (const file of files) {
+    if (file.size > MAX_FILE_BYTES) {
+      throw new Error(`Arquivo ${file.name} excede 12 MB. Use um recorte menor e nitido da tabela/desenho.`);
+    }
+    totalSize += file.size;
+  }
+  if (totalSize > MAX_TOTAL_FILE_BYTES) {
+    throw new Error("As evidencias somadas excedem 18 MB. Envie recortes menores ou menos paginas por extracao.");
+  }
+
+  return Promise.all(
+    files.slice(0, 2).map(async (file) => {
+      const mediaType = file.type || guessMediaType(file.name);
+      return {
+        name: file.name,
+        mediaType,
+        base64Data: Buffer.from(await file.arrayBuffer()).toString("base64"),
+        isPdf: mediaType.includes("pdf") || file.name.toLowerCase().endsWith(".pdf"),
+      };
+    }),
+  );
+}
+
+function buildPrompt(hints: Record<string, string | null>, files: EvidenceFile[]) {
+  const hasPdf = files.some((file) => file.isPdf);
   return `
 Voce esta extraindo dados de uma norma tecnica de concessionaria de energia.
-O arquivo pode conter tabela, desenho, legenda, detalhe, nota ou requisito.
+Os arquivos podem conter uma tabela/desenho em uma ou duas paginas consecutivas.
 
 Objetivo:
 - Identificar o tipo real do ativo.
 - Extrair titulo, codigo/numero, notas e linhas estruturadas.
 - Preservar valores, unidades, asteriscos, quantidades e responsabilidades.
 - Nao inventar valor. Se nao enxergar, deixe vazio e coloque aviso em warnings.
+- Quando houver 2 arquivos, trate o arquivo 1 antes do arquivo 2 e una a continuacao da mesma tabela.
+- Nao pare na primeira pagina: extraia todas as linhas visiveis em todos os arquivos.
+- Ignore cabecalhos, rodapes, logos e classificacao da informacao como linhas de dados.
 
 Dicas do formulario:
 ${JSON.stringify(hints, null, 2)}
+
+Arquivos recebidos, nesta ordem:
+${files.map((file, index) => `${index + 1}. ${file.name} (${file.isPdf ? "PDF" : "imagem"})`).join("\n")}
 
 Regras para tipos:
 - Tabela de dimensionamento de ramal/cabo/disjuntor: preencher dimensioningRows com campos:
@@ -258,6 +293,14 @@ Regras para tipos:
   copperMultiplexedMm2, aluminumDuplexMm2, aluminumTriplexMm2, aluminumQuadruplexMm2,
   galvanizedSteelConduitInch, customerPhaseNeutralConductorMm2, groundingConductorMm2,
   groundingConduitInch, notes.
+- Para "MONOFASICO", "MONO" ou "(MONO)", use supplyType "MONOFASICO".
+- Para "TRIFASICO", "TRI" ou "(TRI)", use supplyType "TRIFASICO".
+- Para "BIFASICO" ou "BI", use supplyType "BIFASICO".
+- Para carga "Ate 5", deixe loadMinKw vazio e use loadMaxKw 5.
+- Para carga "De 48,1 a 60", use loadMinKw 48.1 e loadMaxKw 60.
+- Para disjuntor "20 (TRI)", use breakerAmp 20 e breakerType "TRI".
+- Nunca use valores de condutor/eletroduto como disjuntor. Se o disjuntor estiver ilegivel, deixe breakerAmp vazio e avise em warnings.
+- Se a tabela continuar na pagina seguinte, mantenha o mesmo codigo/numero/titulo e acrescente as linhas da continuacao no fim de dimensioningRows.
 - Outras tabelas: usar genericRowsText com uma linha por registro e celulas separadas por ponto e virgula.
   Exemplos:
   "Aquecedor de agua por acumulacao; 50 a 100 litros; 1000 W"
@@ -266,7 +309,8 @@ Regras para tipos:
   "01*; Alca pre-formada para servico para cabo multiplexado; 2 und; CONCESSIONARIA"
 - Desenhos/detalhes/legendas: genericRowsText deve listar itens/cotas/componentes, e notesText deve listar notas.
 - Se houver asterisco e nota de responsabilidade da concessionaria, marque responsabilidade CONCESSIONARIA.
-- Se for ${isPdf ? "PDF" : "imagem"}, extraia apenas o que esta visivel/legivel.
+- Se for ${hasPdf ? "PDF" : "imagem"}, extraia apenas o que esta visivel/legivel.
+- Para tabelas de materiais, dimensoes ou condutores, preserve todas as colunas no genericRowsText com cabecalho claro na primeira linha.
 
 Retorne somente JSON valido no formato:
 {

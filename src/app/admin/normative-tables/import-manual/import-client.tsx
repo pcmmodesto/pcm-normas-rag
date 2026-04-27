@@ -104,17 +104,47 @@ function toNum(v: string): number | null {
 }
 
 function valueToString(value: unknown) {
-  return value === null || value === undefined ? "" : String(value);
+  if (value === null || value === undefined) return "";
+  const text = String(value).trim();
+  return text === "-" || text === "–" ? "" : text;
+}
+
+function normalizeSupplyType(value: unknown) {
+  const text = valueToString(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  if (text.includes("MONO")) return "MONOFASICO";
+  if (text.includes("BI")) return "BIFASICO";
+  if (text.includes("TRI")) return "TRIFASICO";
+  return text || "TRIFASICO";
+}
+
+function normalizeBreakerAmp(value: unknown, breakerType: unknown) {
+  const direct = valueToString(value);
+  if (direct) return direct;
+
+  const match = valueToString(breakerType).match(/\d+(?:[,.]\d+)?/);
+  return match?.[0] ?? "";
+}
+
+function normalizeBreakerType(value: unknown) {
+  const text = valueToString(value);
+  if (!text) return "";
+  if (/mono/i.test(text)) return "MONO";
+  if (/tri/i.test(text)) return "TRI";
+  if (/bi/i.test(text)) return "BI";
+  return text.replace(/\d+(?:[,.]\d+)?/g, "").replace(/[()]/g, "").trim();
 }
 
 function rowFromExtracted(input: Record<string, unknown>): RowInput {
   return {
     _key: mkKey(),
-    supplyType: valueToString(input.supplyType || "TRIFASICO"),
+    supplyType: normalizeSupplyType(input.supplyType || input.breakerType),
     loadMinKw: valueToString(input.loadMinKw),
     loadMaxKw: valueToString(input.loadMaxKw),
-    breakerAmp: valueToString(input.breakerAmp),
-    breakerType: valueToString(input.breakerType),
+    breakerAmp: normalizeBreakerAmp(input.breakerAmp, input.breakerType),
+    breakerType: normalizeBreakerType(input.breakerType),
     copperConcentricMm2: valueToString(input.copperConcentricMm2),
     copperMultiplexedMm2: valueToString(input.copperMultiplexedMm2),
     aluminumDuplexMm2: valueToString(input.aluminumDuplexMm2),
@@ -290,14 +320,14 @@ export function ImportManualClient({ versions }: { versions: DocVersionOption[] 
 
   async function handleExtractFromEvidence() {
     setFeedback(null);
-    const source = previews[0] ?? previews[1];
-    if (!source) {
+    const sources = previews.filter((preview): preview is FilePreview => Boolean(preview));
+    if (!sources.length) {
       setFeedback({ ok: false, message: "Carregue uma imagem ou PDF antes de extrair." });
       return;
     }
 
     const form = new FormData();
-    form.set("file", source.file, source.name);
+    sources.forEach((source) => form.append("files", source.file, source.name));
     form.set("assetType", assetType);
     form.set("category", meta.category);
     form.set("code", meta.code);
@@ -343,7 +373,7 @@ export function ImportManualClient({ versions }: { versions: DocVersionOption[] 
       const warnings = extracted.warnings?.length ? ` Avisos: ${extracted.warnings.join(" ")}` : "";
       setFeedback({
         ok: true,
-        message: `${data.message ?? "Extracao concluida."} Confianca: ${extracted.confidence ?? "media"}.${warnings}`,
+        message: `${data.message ?? "Extracao concluida."} ${sources.length} evidencia(s) analisada(s). Confianca: ${extracted.confidence ?? "media"}.${warnings}`,
       });
     } catch (error) {
       setFeedback({ ok: false, message: error instanceof Error ? error.message : "Falha ao chamar extracao visual." });
