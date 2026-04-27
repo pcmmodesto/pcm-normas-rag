@@ -30,10 +30,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, message: "Apenas administradores podem extrair ativos normativos." }, { status: 403 });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  const openAiApiKey = process.env.OPENAI_API_KEY;
+  const anthropicApiKey = getAnthropicApiKey();
+  if (!openAiApiKey && !anthropicApiKey) {
     return NextResponse.json(
-      { ok: false, message: "OPENAI_API_KEY nao esta configurada para extracao visual." },
+      { ok: false, message: "Configure ANTHROPIC_API_KEY ou OPENAI_API_KEY para extracao visual." },
       { status: 503 },
     );
   }
@@ -65,54 +66,28 @@ export async function POST(request: Request) {
   };
   const bytes = Buffer.from(await file.arrayBuffer());
   const mediaType = file.type || guessMediaType(file.name);
-  const fileData = `data:${mediaType};base64,${bytes.toString("base64")}`;
+  const base64Data = bytes.toString("base64");
   const isPdf = mediaType.includes("pdf") || file.name.toLowerCase().endsWith(".pdf");
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_EXTRACTION_MODEL ?? "gpt-4.1-mini",
-        input: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text: buildPrompt(hints, isPdf),
-              },
-              isPdf
-                ? {
-                    type: "input_file",
-                    filename: file.name || "norma.pdf",
-                    file_data: fileData,
-                  }
-                : {
-                    type: "input_image",
-                    image_url: fileData,
-                  },
-            ],
-          },
-        ],
-        temperature: 0,
-        max_output_tokens: 4000,
-      }),
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      return NextResponse.json(
-        { ok: false, message: `Falha na extracao visual (${response.status}). ${text.slice(0, 300)}` },
-        { status: 502 },
-      );
-    }
-
-    const payload = (await response.json()) as Record<string, unknown>;
-    const outputText = extractOutputText(payload);
+    const prompt = buildPrompt(hints, isPdf);
+    const outputText = anthropicApiKey
+      ? await extractWithAnthropic({
+          apiKey: anthropicApiKey,
+          base64Data,
+          fileName: file.name,
+          isPdf,
+          mediaType,
+          prompt,
+        })
+      : await extractWithOpenAI({
+          apiKey: openAiApiKey!,
+          base64Data,
+          fileName: file.name,
+          isPdf,
+          mediaType,
+          prompt,
+        });
     const parsed = parseJsonObject(outputText);
     if (!parsed) {
       return NextResponse.json(
@@ -137,6 +112,130 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+async function extractWithOpenAI({
+  apiKey,
+  base64Data,
+  fileName,
+  isPdf,
+  mediaType,
+  prompt,
+}: {
+  apiKey: string;
+  base64Data: string;
+  fileName: string;
+  isPdf: boolean;
+  mediaType: string;
+  prompt: string;
+}) {
+  const fileData = `data:${mediaType};base64,${base64Data}`;
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: process.env.OPENAI_EXTRACTION_MODEL ?? "gpt-4.1-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: prompt,
+            },
+            isPdf
+              ? {
+                  type: "input_file",
+                  filename: fileName || "norma.pdf",
+                  file_data: fileData,
+                }
+              : {
+                  type: "input_image",
+                  image_url: fileData,
+                },
+          ],
+        },
+      ],
+      temperature: 0,
+      max_output_tokens: 4000,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Falha na extracao visual OpenAI (${response.status}). ${text.slice(0, 300)}`);
+  }
+
+  const payload = (await response.json()) as Record<string, unknown>;
+  return extractOpenAIOutputText(payload);
+}
+
+async function extractWithAnthropic({
+  apiKey,
+  base64Data,
+  isPdf,
+  mediaType,
+  prompt,
+}: {
+  apiKey: string;
+  base64Data: string;
+  fileName: string;
+  isPdf: boolean;
+  mediaType: string;
+  prompt: string;
+}) {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: process.env.ANTHROPIC_EXTRACTION_MODEL ?? "claude-sonnet-4-20250514",
+      max_tokens: 4000,
+      temperature: 0,
+      messages: [
+        {
+          role: "user",
+          content: [
+            isPdf
+              ? {
+                  type: "document",
+                  source: {
+                    type: "base64",
+                    media_type: "application/pdf",
+                    data: base64Data,
+                  },
+                }
+              : {
+                  type: "image",
+                  source: {
+                    type: "base64",
+                    media_type: mediaType,
+                    data: base64Data,
+                  },
+                },
+            {
+              type: "text",
+              text: prompt,
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Falha na extracao visual Anthropic (${response.status}). ${text.slice(0, 300)}`);
+  }
+
+  const payload = (await response.json()) as Record<string, unknown>;
+  return extractAnthropicOutputText(payload);
 }
 
 function buildPrompt(hints: Record<string, string | null>, isPdf: boolean) {
@@ -187,7 +286,7 @@ Retorne somente JSON valido no formato:
 `.trim();
 }
 
-function extractOutputText(payload: Record<string, unknown>) {
+function extractOpenAIOutputText(payload: Record<string, unknown>) {
   const direct = payload.output_text;
   if (typeof direct === "string") return direct;
 
@@ -205,6 +304,23 @@ function extractOutputText(payload: Record<string, unknown>) {
     }
   }
   return parts.join("\n");
+}
+
+function extractAnthropicOutputText(payload: Record<string, unknown>) {
+  const content = payload.content;
+  if (!Array.isArray(content)) return "";
+
+  const parts: string[] = [];
+  for (const piece of content) {
+    if (!piece || typeof piece !== "object") continue;
+    const text = (piece as { text?: unknown }).text;
+    if (typeof text === "string") parts.push(text);
+  }
+  return parts.join("\n");
+}
+
+function getAnthropicApiKey() {
+  return process.env.ANTHROPIC_API_KEY ?? process.env.ANTROPIC_API_KEY;
 }
 
 function parseJsonObject(text: string): ExtractedAsset | null {
