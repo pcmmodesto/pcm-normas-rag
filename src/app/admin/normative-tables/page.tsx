@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { AdminShell } from "@/components/layout/app-shell";
 import { AdminWarning } from "@/components/ui/admin-warning";
 import { DashboardSection } from "@/components/ui/dashboard-section";
@@ -42,6 +43,14 @@ export default async function AdminNormativeTablesPage() {
           title="A consulta de tabelas estruturadas encontrou um problema"
           details={warningDetails}
         />
+        <div className="flex justify-end">
+          <Link
+            href="/admin/normative-tables/import-manual"
+            className="rounded-xl bg-[#123C7C] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0A1633]"
+          >
+            + Importar tabela manualmente
+          </Link>
+        </div>
         <DashboardSection title="Tabelas extraidas e importadas">
           <NormativeTablesClient
             initialFigures={figures.data}
