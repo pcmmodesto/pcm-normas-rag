@@ -781,7 +781,7 @@ async function _runNormativeTableSchema() {
     );
   `);
 
-  await Promise.all([
+  for (const statement of [
     `CREATE INDEX IF NOT EXISTS normative_assets_document_version_id_idx ON normative_assets(document_version_id)`,
     `CREATE INDEX IF NOT EXISTS normative_assets_document_id_idx ON normative_assets(document_id)`,
     `CREATE INDEX IF NOT EXISTS normative_assets_type_idx ON normative_assets(type)`,
@@ -809,5 +809,7 @@ async function _runNormativeTableSchema() {
     `CREATE INDEX IF NOT EXISTS normative_notes_figure_id_idx ON normative_notes(figure_id)`,
     `CREATE INDEX IF NOT EXISTS normative_notes_note_type_idx ON normative_notes(note_type)`,
     `CREATE INDEX IF NOT EXISTS normative_notes_note_number_idx ON normative_notes(note_number)`,
-  ].map((s) => prisma.$executeRawUnsafe(s)));
+  ]) {
+    await prisma.$executeRawUnsafe(statement);
+  }
 }

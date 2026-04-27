@@ -51,11 +51,9 @@ export async function indexDocumentVersion(documentVersionId: string) {
     versionLabel: version.version_label,
   };
 
-  // Download PDF and migrate schema in parallel — both are independent
-  const [pdfBytes] = await Promise.all([
-    downloadFromStorage(bucket, version.storage_path),
-    ensureStructuredChunkSchema(),
-  ]);
+  // Run schema adjustments before the download to avoid concurrent DB work in the session pool.
+  await ensureStructuredChunkSchema();
+  const pdfBytes = await downloadFromStorage(bucket, version.storage_path);
 
   await prisma.$executeRaw`
     update document_versions
@@ -197,13 +195,15 @@ async function ensureStructuredChunkSchema() {
       ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
   `);
 
-  await Promise.all([
+  for (const statement of [
     `CREATE INDEX IF NOT EXISTS "document_chunks_is_low_value_is_searchable_idx" ON "document_chunks"("is_low_value", "is_searchable")`,
     `CREATE INDEX IF NOT EXISTS "document_chunks_chunk_type_idx" ON "document_chunks"("chunk_type")`,
     `CREATE INDEX IF NOT EXISTS "document_chunks_page_type_idx" ON "document_chunks"("page_type")`,
     `CREATE INDEX IF NOT EXISTS "document_chunks_technical_intent_idx" ON "document_chunks"("technical_intent")`,
     `CREATE INDEX IF NOT EXISTS "document_chunks_topic_idx" ON "document_chunks"("topic")`,
-  ].map((s) => prisma.$executeRawUnsafe(s)));
+  ]) {
+    await prisma.$executeRawUnsafe(statement);
+  }
 }
 
 async function downloadFromStorage(

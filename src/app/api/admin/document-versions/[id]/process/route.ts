@@ -53,14 +53,26 @@ export async function POST(
     return NextResponse.json(
       {
         ok: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "Nao foi possivel processar o documento.",
+        message: formatProcessingError(error),
       },
       { status: 500 },
     );
   }
+}
+
+function formatProcessingError(error: unknown) {
+  const message = error instanceof Error ? error.message : "Nao foi possivel processar o documento.";
+
+  if (/MaxClientsInSessionMode|max clients|pool_size/i.test(message)) {
+    return [
+      "Limite de conexoes do banco atingido durante o processamento.",
+      "O pipeline foi ajustado para executar as etapas de schema/index de forma sequencial.",
+      "Aguarde alguns segundos e reprocesse o documento.",
+      `Detalhe tecnico: ${message}`,
+    ].join(" ");
+  }
+
+  return message;
 }
 
 async function markVersionAsFailed(id: string, error: unknown) {
