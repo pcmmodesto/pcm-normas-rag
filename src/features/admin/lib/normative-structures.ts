@@ -23,6 +23,7 @@ export type AdminNormativeTableRow = {
   groundingConduitInch: string | null;
   notes: string | null;
   rawText: string | null;
+  rawRowJson: Prisma.JsonValue | null;
   pageNumber: number;
 };
 
@@ -100,6 +101,7 @@ type RowSqlRow = {
   grounding_conduit_inch: string | null;
   notes: string | null;
   raw_text: string | null;
+  raw_row_json: Prisma.JsonValue | null;
   page_number: number;
 };
 
@@ -248,6 +250,7 @@ function mapRow(row: RowSqlRow): AdminNormativeTableRow {
     groundingConduitInch: row.grounding_conduit_inch,
     notes: row.notes,
     rawText: row.raw_text,
+    rawRowJson: row.raw_row_json,
     pageNumber: row.page_number,
   };
 }

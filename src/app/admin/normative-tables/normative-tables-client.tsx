@@ -20,6 +20,15 @@ type RowEditValues = {
   groundingConductorMm2: string;
 };
 
+type TableLayout =
+  | "DIMENSIONING"
+  | "APPLIANCE_POWER"
+  | "DEMAND_FACTOR"
+  | "MINIMUM_LOAD_DEMAND"
+  | "VOLTAGE_BY_CITY"
+  | "MATERIAL_DIMENSIONS"
+  | "GENERIC";
+
 export function NormativeTablesClient({ initialFigures, initialTables }: Props) {
   const [figures] = useState(initialFigures);
   const [tables, setTables] = useState(initialTables);
@@ -159,35 +168,11 @@ export function NormativeTablesClient({ initialFigures, initialTables }: Props) 
               </div>
             </div>
 
-            <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full min-w-[1200px] text-left text-xs">
-                <thead className="bg-slate-50 uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2">Linha</th>
-                    <th className="px-3 py-2">Tipo</th>
-                    <th className="px-3 py-2">Carga kW</th>
-                    <th className="px-3 py-2">Disjuntor</th>
-                    <th className="px-3 py-2">Cobre multip.</th>
-                    <th className="px-3 py-2">Al. quadruplex</th>
-                    <th className="px-3 py-2">Eletroduto</th>
-                    <th className="px-3 py-2">F/N cliente</th>
-                    <th className="px-3 py-2">Aterramento</th>
-                    <th className="px-3 py-2">Salvar</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {table.rows.map((row) => (
-                    <tr key={row.id}>
-                      <td className="px-3 py-2 font-medium">{row.rowIndex}</td>
-                      <td className="px-3 py-2">{row.supplyType}</td>
-                      <td className="px-3 py-2">{formatRange(row.loadMinKw, row.loadMaxKw)}</td>
-                      <td className="px-3 py-2">{row.breakerAmp} A ({row.breakerType})</td>
-      <EditableRowCells busy={busy === row.id} row={row} updateRow={updateRow} />
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <TableRowsPreview
+              busy={busy}
+              table={table}
+              updateRow={updateRow}
+            />
           </section>
         ))
       )}
@@ -259,6 +244,87 @@ export function NormativeTablesClient({ initialFigures, initialTables }: Props) 
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function TableRowsPreview({
+  table,
+  busy,
+  updateRow,
+}: {
+  table: AdminNormativeTable;
+  busy: string | null;
+  updateRow: (rowId: string, payload: RowEditValues) => Promise<void>;
+}) {
+  const layout = detectTableLayout(table);
+  if (layout === "DIMENSIONING") {
+    return (
+      <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200">
+        <table className="w-full min-w-[1200px] text-left text-xs">
+          <thead className="bg-slate-50 uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-3 py-2">Linha</th>
+              <th className="px-3 py-2">Tipo</th>
+              <th className="px-3 py-2">Carga kW</th>
+              <th className="px-3 py-2">Disjuntor</th>
+              <th className="px-3 py-2">Cobre multip.</th>
+              <th className="px-3 py-2">Al. quadruplex</th>
+              <th className="px-3 py-2">Eletroduto</th>
+              <th className="px-3 py-2">F/N cliente</th>
+              <th className="px-3 py-2">Aterramento</th>
+              <th className="px-3 py-2">Salvar</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {table.rows.map((row) => (
+              <tr key={row.id}>
+                <td className="px-3 py-2 font-medium">{row.rowIndex}</td>
+                <td className="px-3 py-2">{row.supplyType}</td>
+                <td className="px-3 py-2">{formatRange(row.loadMinKw, row.loadMaxKw)}</td>
+                <td className="px-3 py-2">{row.breakerAmp} A ({row.breakerType})</td>
+                <EditableRowCells busy={busy === row.id} row={row} updateRow={updateRow} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  const headers = layout === "GENERIC" ? inferGenericHeaders(table) : headersForLayout(layout);
+  const minWidth = Math.max(720, headers.length * 190);
+
+  return (
+    <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200">
+      <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+        Formato detectado: <strong>{labelForLayout(layout)}</strong>. Estas linhas sao fonte de consulta/instrucao, nao tabela de cabo/disjuntor.
+      </div>
+      <table className="w-full text-left text-xs" style={{ minWidth }}>
+        <thead className="bg-slate-50 uppercase tracking-wide text-slate-500">
+          <tr>
+            <th className="px-3 py-2">Linha</th>
+            {headers.map((header) => (
+              <th className="px-3 py-2" key={header}>{header}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {table.rows.map((row) => {
+            const cells = cellsFromRow(row);
+            return (
+              <tr key={row.id}>
+                <td className="px-3 py-2 font-medium text-slate-500">{row.rowIndex}</td>
+                {headers.map((_, index) => (
+                  <td className="px-3 py-2 align-top text-slate-700" key={index}>
+                    {cells[index] ?? ""}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -335,4 +401,100 @@ function SmallInput({
 function formatRange(min: number | null, max: number | null) {
   if (min === null || min === undefined) return `Ate ${max ?? "-"}`;
   return `${min} ate ${max ?? "-"}`;
+}
+
+function detectTableLayout(table: AdminNormativeTable): TableLayout {
+  const category = normalize(table.category);
+  const title = normalize(table.title);
+  const hasSizingData = table.rows.some(
+    (row) =>
+      row.breakerAmp != null ||
+      row.copperMultiplexedMm2 != null ||
+      row.aluminumQuadruplexMm2 != null ||
+      row.loadMaxKw != null,
+  );
+
+  if (category.includes("SERVICE_ENTRANCE_SIZING") || category.includes("CABLE_SIZING") || category.includes("BREAKER_SIZING")) {
+    return "DIMENSIONING";
+  }
+  if (hasSizingData && (title.includes("DIMENSIONAMENTO") || title.includes("RAMAL DE CONEXAO") || title.includes("DISJUNTOR"))) {
+    return "DIMENSIONING";
+  }
+  if (category.includes("APPLIANCE_POWER") || title.includes("POTENCIA DE APARELHOS") || title.includes("ELETRODOMESTICOS")) {
+    return "APPLIANCE_POWER";
+  }
+  if (category.includes("DEMAND_FACTOR") || title.includes("FATORES DE DEMANDA") || title.includes("FATOR DE DEMANDA")) {
+    return "DEMAND_FACTOR";
+  }
+  if (category.includes("MINIMUM_LOAD_DEMAND") || title.includes("CARGA MINIMA") || title.includes("ILUMINACAO E TOMADAS")) {
+    return "MINIMUM_LOAD_DEMAND";
+  }
+  if (category.includes("VOLTAGE_BY_CITY") || title.includes("NIVEL DE TENSAO POR MUNICIPIO") || title.includes("MUNICIPIO")) {
+    return "VOLTAGE_BY_CITY";
+  }
+  if (category.includes("MATERIAL_DIMENSIONS") || title.includes("DIMENSOES") || title.includes("CONDUTORES/HASTE")) {
+    return "MATERIAL_DIMENSIONS";
+  }
+  return "GENERIC";
+}
+
+function headersForLayout(layout: TableLayout) {
+  switch (layout) {
+    case "APPLIANCE_POWER":
+      return ["Aparelho / descricao", "Especificacao", "Potencia (W)", "Aparelho / descricao", "Especificacao", "Potencia (W)"];
+    case "DEMAND_FACTOR":
+      return ["Numero de aparelhos", "Fator ate 3,5 kW", "Fator maior que 3,5 kW"];
+    case "MINIMUM_LOAD_DEMAND":
+      return ["Descricao", "Carga minima", "Fator de demanda"];
+    case "VOLTAGE_BY_CITY":
+      return ["Municipio", "Nivel de tensao", "Regional", "Municipio", "Nivel de tensao", "Regional"];
+    case "MATERIAL_DIMENSIONS":
+      return ["Item", "Codigo/descricao", "Dimensoes", "Material", "Resistencia/observacao"];
+    default:
+      return ["Coluna 1"];
+  }
+}
+
+function labelForLayout(layout: TableLayout) {
+  const labels: Record<TableLayout, string> = {
+    DIMENSIONING: "dimensionamento tecnico",
+    APPLIANCE_POWER: "potencia de aparelhos",
+    DEMAND_FACTOR: "fator de demanda",
+    MINIMUM_LOAD_DEMAND: "carga minima/demanda",
+    VOLTAGE_BY_CITY: "tensao por municipio",
+    MATERIAL_DIMENSIONS: "dimensoes de materiais",
+    GENERIC: "tabela generica",
+  };
+  return labels[layout];
+}
+
+function cellsFromRow(row: AdminNormativeTable["rows"][number]) {
+  const raw = row.rawRowJson;
+  if (raw && typeof raw === "object" && !Array.isArray(raw) && "cells" in raw) {
+    const cells = (raw as { cells?: unknown }).cells;
+    if (Array.isArray(cells)) {
+      return cells.map((cell) => String(cell ?? ""));
+    }
+  }
+  if (row.rawText) {
+    return row.rawText.split(/\s+\|\s+|\t|;/).map((cell) => cell.trim()).filter(Boolean);
+  }
+  return [
+    row.supplyType,
+    formatRange(row.loadMinKw, row.loadMaxKw),
+    row.breakerAmp != null ? `${row.breakerAmp} A` : null,
+    row.notes,
+  ].filter((cell): cell is string => Boolean(cell));
+}
+
+function inferGenericHeaders(table: AdminNormativeTable) {
+  const maxColumns = Math.max(1, ...table.rows.map((row) => cellsFromRow(row).length));
+  return Array.from({ length: maxColumns }, (_, index) => `Coluna ${index + 1}`);
+}
+
+function normalize(value: string | null | undefined) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
 }
