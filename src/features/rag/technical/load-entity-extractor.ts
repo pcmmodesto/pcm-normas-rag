@@ -55,6 +55,8 @@ const CITY_STATE_PATTERNS: Array<{ pattern: RegExp; city: string; state: string 
   { pattern: /\bbelem\s*(?:\/|\s+|-)?\s*(?:pa|para)\b/, city: "Belem", state: "PA" },
   { pattern: /\bsantarem\s*(?:\/|\s+|-)?\s*(?:pa|para)\b/, city: "Santarem", state: "PA" },
   { pattern: /\bmaraba\s*(?:\/|\s+|-)?\s*(?:pa|para)\b/, city: "Maraba", state: "PA" },
+  { pattern: /\bsao\s+luis\s*(?:\/|\s+|-)?\s*(?:ma|maranhao)?\b/, city: "Sao Luis", state: "MA" },
+  { pattern: /\bsao\s+luiz\s*(?:\/|\s+|-)?\s*(?:ma|maranhao)?\b/, city: "Sao Luis", state: "MA" },
 ];
 
 export function extractLoadEntities(question: string): LoadEntities {
@@ -182,8 +184,8 @@ function extractLocation(normalizedQuestion: string) {
 }
 
 function extractVoltage(normalizedQuestion: string) {
-  const combined = /(127\s*\/\s*220|220\s*\/\s*380)/.exec(normalizedQuestion);
-  if (combined) return combined[1].replace(/\s/g, "");
+  if (/\b127\s*\/\s*220\s*v?\b/.test(normalizedQuestion)) return "127/220";
+  if (/\b220\s*\/\s*(?:380|308)\s*v?\b/.test(normalizedQuestion)) return "220/380";
 
   const simple = /\b(127|220|380)\s*v\b/.exec(normalizedQuestion);
   if (simple) return `${simple[1]}V`;

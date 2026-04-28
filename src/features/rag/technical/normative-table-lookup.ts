@@ -356,6 +356,7 @@ function normalizeVoltage(voltage: string | null | undefined) {
   const normalized = voltage.replace(/\s/g, "").toLowerCase();
   if (normalized.includes("127/220")) return "127/220V";
   if (normalized.includes("220/380")) return "220/380V";
+  if (normalized.includes("220/308")) return "220/380V";
   if (normalized === "127v") return "127V";
   if (normalized === "220v") return "220V";
   if (normalized === "380v") return "380V";

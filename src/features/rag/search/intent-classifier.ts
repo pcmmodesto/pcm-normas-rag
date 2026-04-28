@@ -146,9 +146,9 @@ export function classifyQueryAudience(question: string): QueryAudience {
   const hasExplicitServiceRequest =
     /como (posso|fazer|solicitar|pedir|faco)|solicitar (ligacao|energia|fornecimento)|pedir (ligacao|energia)|como pedir|ligacao nova|nova ligacao|segunda via|religacao|titularidade|quais documentos|documentos necessarios|o que preciso|qual concession|a equatorial (liga|atende|cobre)/.test(n);
   const hasHardDimensioningMarker =
-    /\bcabo\b|bitola|condutor|ramal|disjuntor|protecao|\bkva\b|\bkw\b|carga instalada|demanda|padrao de entrada|subestacao|desenho\s+\d+|legenda|altura|medidor|caixa de medicao|materiais|responsabilidade|concessionaria|127\s*\/\s*220|220\s*\/\s*380|trifasico|monofasico|bifasico/.test(n);
+    /\bcabo\b|bitola|condutor|ramal|disjuntor|protecao|\bkva\b|\bkw\b|carga instalada|demanda|padrao de entrada|subestacao|desenho\s+\d+|legenda|altura|medidor|caixa de medicao|materiais|responsabilidade|concessionaria|127\s*\/\s*220|220\s*\/\s*(?:380|308)|trifasico|monofasico|bifasico/.test(n);
   const hasTechnicalDimensioningMarker =
-    /\bcabo\b|bitola|condutor|ramal|entrada|disjuntor|protecao|\bkva\b|\bkw\b|carga instalada|demanda|padrao de entrada|subestacao|medicao|desenho\s+\d+|legenda|altura|medidor|caixa de medicao|materiais|responsabilidade|concessionaria|127\s*\/\s*220|220\s*\/\s*380|trifasico|monofasico|bifasico|baixa tensao|media tensao/.test(n);
+    /\bcabo\b|bitola|condutor|ramal|entrada|disjuntor|protecao|\bkva\b|\bkw\b|carga instalada|demanda|padrao de entrada|subestacao|medicao|desenho\s+\d+|legenda|altura|medidor|caixa de medicao|materiais|responsabilidade|concessionaria|127\s*\/\s*220|220\s*\/\s*(?:380|308)|trifasico|monofasico|bifasico|baixa tensao|media tensao/.test(n);
 
   if (hasExplicitServiceRequest && !hasHardDimensioningMarker) {
     return "LEIGO_ATENDIMENTO";
@@ -290,7 +290,7 @@ export function detectDimensioningMissingContext(question: string, intents: Tech
   const n = normalize(question);
   const missing: string[] = [];
 
-  if (!/127\s*\/\s*220|220\s*\/\s*380|tensao|baixa tensao|media tensao|\bbt\b|\bmt\b/.test(n)) {
+  if (!/127\s*\/\s*220|220\s*\/\s*(?:380|308)|tensao|baixa tensao|media tensao|\bbt\b|\bmt\b/.test(n)) {
     missing.push("tensao/tabela aplicavel (ex.: 127/220 V, 220/380 V, baixa tensao ou media tensao)");
   }
 
@@ -375,11 +375,15 @@ export type TechnicalEntities = {
 
 export function extractTechnicalEntities(question: string): TechnicalEntities {
   const n = normalize(question);
-  const city = /altamira/.test(n) ? "Altamira" : undefined;
+  const city = /altamira/.test(n)
+    ? "Altamira"
+    : /sao\s+lui[sz]/.test(n)
+      ? "Sao Luis"
+      : undefined;
   const state =
     /\bpa\b|para/.test(n) || city === "Altamira"
       ? "PA"
-      : /\bma\b|maranhao/.test(n)
+      : /\bma\b|maranhao/.test(n) || city === "Sao Luis"
         ? "MA"
         : undefined;
   const probableConcessionaire =
@@ -389,7 +393,7 @@ export function extractTechnicalEntities(question: string): TechnicalEntities {
         ? "Equatorial Maranhao"
         : undefined;
   const kvaMatch = /(\d+(?:[,.]\d+)?)\s*kva/.exec(n);
-  const voltageMatch = /(127\s*\/\s*220|220\s*\/\s*380|13[,.]8\s*kv|34[,.]5\s*kv|baixa tensao|media tensao)/.exec(n);
+  const voltageMatch = /(127\s*\/\s*220|220\s*\/\s*(?:380|308)|13[,.]8\s*kv|34[,.]5\s*kv|baixa tensao|media tensao)/.exec(n);
   const drawingMatch = /desenho\s+(\d+)/.exec(n);
   const connectionType = /trifasico/.test(n)
     ? "trifasico"
@@ -403,7 +407,7 @@ export function extractTechnicalEntities(question: string): TechnicalEntities {
     city,
     state,
     probableConcessionaire,
-    voltage: voltageMatch?.[1],
+    voltage: normalizeExtractedVoltage(voltageMatch?.[1]),
     installedLoadKva: kvaMatch ? Number(kvaMatch[1].replace(",", ".")) : undefined,
     demand: /demanda/.test(n) ? "demanda" : undefined,
     hasKva: /\bkva\b/.test(n),
@@ -441,6 +445,13 @@ export function extractTechnicalEntities(question: string): TechnicalEntities {
   ].filter((term): term is string => Boolean(term));
 
   return entities;
+}
+
+function normalizeExtractedVoltage(voltage: string | undefined) {
+  if (!voltage) return undefined;
+  const compact = voltage.replace(/\s/g, "");
+  if (compact === "220/308") return "220/380";
+  return compact;
 }
 
 export function shouldUseServiceExpansion(question: string): boolean {
