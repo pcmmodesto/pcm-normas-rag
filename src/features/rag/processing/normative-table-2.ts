@@ -620,7 +620,7 @@ async function _runNormativeTableSchema() {
       state TEXT,
       voltage TEXT,
       category TEXT,
-      validation_status TEXT NOT NULL DEFAULT 'NAO_VALIDADA',
+      validation_status TEXT NOT NULL DEFAULT 'PENDING',
       validation_notes TEXT,
       validated_at TIMESTAMP(3),
       applicable_voltage TEXT,
@@ -636,7 +636,7 @@ async function _runNormativeTableSchema() {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE normative_tables
       ADD COLUMN IF NOT EXISTS asset_id TEXT REFERENCES normative_assets(id) ON DELETE SET NULL,
-      ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'NAO_VALIDADA',
+      ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'PENDING',
       ADD COLUMN IF NOT EXISTS validation_notes TEXT,
       ADD COLUMN IF NOT EXISTS validated_at TIMESTAMP(3),
       ADD COLUMN IF NOT EXISTS applicable_voltage TEXT,

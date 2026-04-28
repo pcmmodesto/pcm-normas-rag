@@ -797,7 +797,7 @@ model NormativeTable {
   state             String?
   voltage           String?
   category          String?
-  validationStatus  String   @default("NAO_VALIDADA") @map("validation_status")
+  validationStatus  String   @default("PENDING") @map("validation_status")
   validationNotes   String?  @map("validation_notes")
   validatedAt       DateTime? @map("validated_at")
   applicableVoltage String?  @map("applicable_voltage")

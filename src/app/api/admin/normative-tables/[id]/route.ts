@@ -24,8 +24,7 @@ export async function PATCH(
     validationStatus?: unknown;
     validationNotes?: unknown;
   };
-  const validationStatus =
-    body.validationStatus === "VALIDADA" ? "VALIDADA" : "NAO_VALIDADA";
+  const validationStatus = normalizeValidationStatus(body.validationStatus);
   const validationNotes = typeof body.validationNotes === "string" ? body.validationNotes : null;
 
   await ensureNormativeTableSchema();
@@ -35,10 +34,17 @@ export async function PATCH(
     set
       validation_status = ${validationStatus},
       validation_notes = ${validationNotes},
-      validated_at = case when ${validationStatus} = 'VALIDADA' then now() else null end,
+      validated_at = case when ${validationStatus} = 'VALIDATED' then now() else null end,
       updated_at = now()
     where id = ${id}
   `;
 
   return NextResponse.json({ ok: true, validationStatus });
+}
+
+function normalizeValidationStatus(value: unknown) {
+  if (value === "VALIDATED" || value === "VALIDADA") return "VALIDATED";
+  if (value === "INACTIVE") return "INACTIVE";
+  if (value === "NEEDS_REVIEW" || value === "REVIEW") return "REVIEW";
+  return "PENDING";
 }

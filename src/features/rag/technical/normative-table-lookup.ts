@@ -51,6 +51,28 @@ export type ServiceEntranceLookupResult = {
     pageNumber: number;
   };
   candidateRows: Array<NonNullable<ServiceEntranceLookupResult["row"]>>;
+  validationDebug?: {
+    finalUsedValidatedTable: boolean;
+    acceptedTables: ServiceEntranceTableCandidate[];
+    blockedTables: ServiceEntranceTableCandidate[];
+  };
+};
+
+export type ServiceEntranceTableCandidate = {
+  tableId: string;
+  tableNumber: string | null;
+  title: string;
+  documentTitle: string;
+  versionLabel: string;
+  pageNumber: number;
+  concessionaire: string | null;
+  state: string | null;
+  voltage: string | null;
+  tableValidationStatus: string | null;
+  assetValidationStatus: string | null;
+  rowIndex: number;
+  blockReason?: string;
+  acceptReason?: string;
 };
 
 type ServiceEntranceLookupRow = {
@@ -115,14 +137,26 @@ export async function lookupServiceEntranceTable(
       connectionType: connectionType!,
       state: state!,
       utility: input.utility ?? null,
+      validationMode: "VALIDATED",
+    });
+    const blockedRows = await queryRows({
+      loadKw: loadKw!,
+      voltage: voltage!,
+      connectionType: connectionType!,
+      state: state!,
+      utility: input.utility ?? null,
+      validationMode: "BLOCKED",
     });
 
     if (rows.length === 0) {
       return {
         status: "INSUFFICIENT_TABLE_DATA",
-        reason: "Tabela estruturada validada nao possui linha confiavel para a carga/contexto informado.",
+        reason: blockedRows.length > 0
+          ? "Tabela candidata encontrada, mas ainda nao validada."
+          : "Tabela estruturada validada nao possui linha confiavel para a carga/contexto informado.",
         missingContext: [],
         candidateRows: [],
+        validationDebug: buildValidationDebug([], blockedRows),
       };
     }
 
@@ -146,6 +180,7 @@ export async function lookupServiceEntranceTable(
       },
       row: mapRow(selected),
       candidateRows: rows.map(mapRow),
+      validationDebug: buildValidationDebug(rows, blockedRows),
     };
   } catch (error) {
     return {
@@ -153,6 +188,11 @@ export async function lookupServiceEntranceTable(
       reason: error instanceof Error ? error.message : "Falha ao consultar tabela normativa estruturada.",
       missingContext: [],
       candidateRows: [],
+      validationDebug: {
+        finalUsedValidatedTable: false,
+        acceptedTables: [],
+        blockedTables: [],
+      },
     };
   }
 }
@@ -163,7 +203,12 @@ async function queryRows(params: {
   connectionType: "MONOFASICO" | "BIFASICO" | "TRIFASICO";
   state: string;
   utility: string | null;
+  validationMode: "VALIDATED" | "BLOCKED";
 }) {
+  const validationFilter = params.validationMode === "VALIDATED"
+    ? Prisma.sql`nt.validation_status = 'VALIDATED'`
+    : Prisma.sql`nt.validation_status <> 'VALIDATED' and nt.validation_status <> 'INACTIVE'`;
+
   return prisma.$queryRaw<ServiceEntranceLookupRow[]>(Prisma.sql`
     select
       nt.id as table_id,
@@ -206,10 +251,7 @@ async function queryRows(params: {
     where dv.processing_status = 'READY'
       and dv.status <> 'ARCHIVED'::version_status
       and coalesce(na.is_active, true) = true
-      and (
-        na.validation_status = 'VALIDATED'::normative_asset_validation_status
-        or nt.validation_status in ('VALIDATED', 'VALIDADA')
-      )
+      and ${validationFilter}
       and ntr.voltage = ${params.voltage}
       and ntr.supply_type = ${params.connectionType}
       and ${params.loadKw} >= coalesce(ntr.load_min_kw, -999999)
@@ -224,10 +266,50 @@ async function queryRows(params: {
         or td.concessionaire ilike ${`%${params.utility ?? ""}%`}
       )
     order by
-      case when nt.validation_status in ('VALIDATED', 'VALIDADA') then 0 else 1 end,
+      case when nt.validation_status = 'VALIDATED' then 0 else 1 end,
       ntr.row_index asc
     limit 5
   `);
+}
+
+function buildValidationDebug(
+  acceptedRows: ServiceEntranceLookupRow[],
+  blockedRows: ServiceEntranceLookupRow[],
+): NonNullable<ServiceEntranceLookupResult["validationDebug"]> {
+  return {
+    finalUsedValidatedTable: acceptedRows.length > 0,
+    acceptedTables: acceptedRows.map((row) => mapCandidate(row, "Tabela validada elegivel para resposta tecnica.")),
+    blockedTables: blockedRows.map((row) => mapCandidate(row, undefined, blockReasonForStatus(row.table_validation_status))),
+  };
+}
+
+function mapCandidate(
+  row: ServiceEntranceLookupRow,
+  acceptReason?: string,
+  blockReason?: string,
+): ServiceEntranceTableCandidate {
+  return {
+    tableId: row.table_id,
+    tableNumber: row.table_number,
+    title: row.title,
+    documentTitle: row.document_title,
+    versionLabel: row.version_label,
+    pageNumber: row.table_page_number,
+    concessionaire: row.concessionaire,
+    state: row.state,
+    voltage: row.table_voltage,
+    tableValidationStatus: row.table_validation_status,
+    assetValidationStatus: row.asset_validation_status,
+    rowIndex: row.row_index,
+    acceptReason,
+    blockReason,
+  };
+}
+
+function blockReasonForStatus(status: string | null) {
+  if (status === "PENDING") return "tabela ainda nao validada";
+  if (status === "REVIEW" || status === "NEEDS_REVIEW") return "tabela em revisao";
+  return "tabela ainda nao validada";
 }
 
 function mapRow(row: ServiceEntranceLookupRow): NonNullable<ServiceEntranceLookupResult["row"]> {

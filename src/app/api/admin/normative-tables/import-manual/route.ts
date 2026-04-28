@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role";
 import { ensureNormativeTableSchema } from "@/features/rag/processing/normative-table-2";
 
 export const runtime = "nodejs";
@@ -58,6 +59,7 @@ type ManualImportBody = {
 const VALID_ASSET_TYPES = new Set(["TABLE", "DRAWING", "FIGURE", "NOTE", "LEGEND", "REQUIREMENT"]);
 const VALID_STATUSES = new Set(["PENDING", "VALIDATED", "NEEDS_REVIEW"]);
 const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
+const EVIDENCE_MIME_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/webp"];
 
 export async function POST(request: Request) {
   const currentUser = await getCurrentUser();
@@ -206,7 +208,7 @@ export async function POST(request: Request) {
             ${stateStr},
             ${body.voltage || null},
             ${body.category},
-            ${body.validationStatus === "VALIDATED" ? "VALIDATED" : "NAO_VALIDADA"},
+            ${body.validationStatus === "VALIDATED" ? "VALIDATED" : "PENDING"},
             ${body.validationStatus === "VALIDATED" ? new Date() : null},
             ${body.voltage || null},
             ${isDimensioningTable ? "DIMENSIONAMENTO" : null},
@@ -551,25 +553,80 @@ async function uploadEvidence(file: File, documentVersionId: string, assetId: st
     throw new Error("Storage nao configurado para salvar evidencias normativas.");
   }
 
+  await ensureEvidenceBucketAcceptsMimeTypes(bucket);
+
   const ext = sanitizeExt(file.name, file.type);
+  const contentType = normalizeEvidenceContentType(file.type, ext);
   const path = `normative-assets/${documentVersionId}/${assetId}-${slot}.${ext}`;
   const bytes = await file.arrayBuffer();
-  const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/${bucket}/${path}`, {
+  const uploadUrl = `${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/${bucket}/${path}`;
+  let response = await uploadEvidenceBytes(uploadUrl, serviceRoleKey, contentType, bytes);
+  let errorText = response.ok ? "" : await response.text().catch(() => "");
+
+  if (!response.ok && isInvalidMimeTypeError(errorText)) {
+    await ensureEvidenceBucketAcceptsMimeTypes(bucket, { force: true });
+    response = await uploadEvidenceBytes(uploadUrl, serviceRoleKey, contentType, bytes);
+    errorText = response.ok ? "" : await response.text().catch(() => "");
+  }
+
+  if (!response.ok) {
+    throw new Error(`Falha ao enviar evidencia para o Storage (${response.status}). ${errorText.slice(0, 160)}`);
+  }
+  return `${bucket}/${path}`;
+}
+
+async function uploadEvidenceBytes(
+  uploadUrl: string,
+  serviceRoleKey: string,
+  contentType: string,
+  bytes: ArrayBuffer,
+) {
+  return fetch(uploadUrl, {
     method: "POST",
     headers: {
       apikey: serviceRoleKey,
       authorization: `Bearer ${serviceRoleKey}`,
       "cache-control": "3600",
-      "content-type": file.type || "application/octet-stream",
+      "content-type": contentType,
       "x-upsert": "true",
     },
     body: bytes,
   });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Falha ao enviar evidencia para o Storage (${response.status}). ${text.slice(0, 160)}`);
+}
+
+async function ensureEvidenceBucketAcceptsMimeTypes(bucket: string, options: { force?: boolean } = {}) {
+  const supabase = createSupabaseServiceRoleClient();
+  const { data, error } = await supabase.storage.getBucket(bucket);
+  if (error) {
+    throw new Error(`Nao foi possivel verificar o bucket de evidencias (${bucket}): ${error.message}`);
   }
-  return `${bucket}/${path}`;
+
+  const bucketData = data as {
+    public?: boolean;
+    file_size_limit?: number | string | null;
+    fileSizeLimit?: number | string | null;
+    allowed_mime_types?: string[] | null;
+    allowedMimeTypes?: string[] | null;
+  } | null;
+  const currentMimeTypes = bucketData?.allowed_mime_types ?? bucketData?.allowedMimeTypes ?? null;
+  if (!options.force && currentMimeTypes && EVIDENCE_MIME_TYPES.every((mime) => currentMimeTypes.includes(mime))) {
+    return;
+  }
+
+  const nextMimeTypes = Array.from(new Set([...(currentMimeTypes ?? []), ...EVIDENCE_MIME_TYPES]));
+  const { error: updateError } = await supabase.storage.updateBucket(bucket, {
+    public: bucketData?.public ?? false,
+    fileSizeLimit: bucketData?.file_size_limit ?? bucketData?.fileSizeLimit ?? MAX_EVIDENCE_BYTES,
+    allowedMimeTypes: nextMimeTypes,
+  });
+
+  if (updateError) {
+    throw new Error(`Nao foi possivel liberar imagens no bucket de evidencias (${bucket}): ${updateError.message}`);
+  }
+}
+
+function isInvalidMimeTypeError(text: string) {
+  return text.includes("invalid_mime_type") || text.includes("mime type") || text.includes("not supported");
 }
 
 function getFormString(form: FormData, key: string) {
@@ -665,4 +722,13 @@ function sanitizeExt(name: string, contentType: string) {
   if (contentType.includes("png")) return "png";
   if (contentType.includes("jpeg") || contentType.includes("jpg")) return "jpg";
   return "bin";
+}
+
+function normalizeEvidenceContentType(contentType: string, ext: string) {
+  if (EVIDENCE_MIME_TYPES.includes(contentType)) return contentType;
+  if (ext === "pdf") return "application/pdf";
+  if (ext === "png") return "image/png";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "webp") return "image/webp";
+  return "application/octet-stream";
 }

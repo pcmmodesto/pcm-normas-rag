@@ -25,6 +25,28 @@ export type NormativeTableLookupResult = {
   selectedRow?: NormativeTableRowResult;
   candidateRows: NormativeTableRowResult[];
   kvaKwNotice?: string;
+  validationDebug?: {
+    finalUsedValidatedTable: boolean;
+    acceptedTables: NormativeTableCandidate[];
+    blockedTables: NormativeTableCandidate[];
+  };
+};
+
+export type NormativeTableCandidate = {
+  tableId: string;
+  tableNumber: string | null;
+  title: string;
+  documentTitle: string;
+  versionLabel: string;
+  pageNumber: number;
+  concessionaire: string | null;
+  state: string | null;
+  voltage: string | null;
+  tableValidationStatus: string | null;
+  assetValidationStatus: string | null;
+  rowIndex: number;
+  blockReason?: string;
+  acceptReason?: string;
 };
 
 export type NormativeTableRowResult = {
@@ -138,9 +160,15 @@ export async function lookupNormativeSizingTable(
   let queryError: string | null = null;
   try {
     await ensureNormativeTableSchema();
-    rows = await queryRows({ loadKw, supplyType, voltage, state });
+    rows = await queryRows({ loadKw, supplyType, voltage, state, validationMode: "VALIDATED" });
   } catch (error) {
     queryError = error instanceof Error ? error.message : "Erro ao consultar tabelas estruturadas.";
+  }
+  let blockedRows: TableLookupRow[] = [];
+  try {
+    blockedRows = await queryRows({ loadKw, supplyType, voltage, state, validationMode: "BLOCKED" });
+  } catch {
+    blockedRows = [];
   }
   const selected = rows[0] ?? null;
 
@@ -149,9 +177,12 @@ export async function lookupNormativeSizingTable(
       mode: "TABLE_LOOKUP",
       attempted: true,
       found: false,
-      reason: "Nenhuma linha estruturada encontrada para a faixa informada.",
+      reason: blockedRows.length > 0
+        ? "Tabela candidata encontrada, mas ainda nao validada."
+        : "Nenhuma linha estruturada validada encontrada para a faixa informada.",
       candidateRows: rows.map(mapRow),
       kvaKwNotice: entities.hasKva ? kvaKwNotice(entities.installedLoadKva) : undefined,
+      validationDebug: buildValidationDebug([], blockedRows),
     };
   }
 
@@ -182,6 +213,7 @@ export async function lookupNormativeSizingTable(
     selectedRow,
     candidateRows: rows.map(mapRow),
     kvaKwNotice: entities.hasKva ? kvaKwNotice(entities.installedLoadKva) : undefined,
+    validationDebug: buildValidationDebug(rows, blockedRows),
   };
 }
 
@@ -190,7 +222,12 @@ async function queryRows(params: {
   supplyType: string;
   voltage: string;
   state: string | null;
+  validationMode: "VALIDATED" | "BLOCKED";
 }) {
+  const validationFilter = params.validationMode === "VALIDATED"
+    ? Prisma.sql`nt.validation_status = 'VALIDATED'`
+    : Prisma.sql`nt.validation_status <> 'VALIDATED' and nt.validation_status <> 'INACTIVE'`;
+
   return prisma.$queryRaw<TableLookupRow[]>(Prisma.sql`
     select
       nt.id as table_id,
@@ -240,16 +277,53 @@ async function queryRows(params: {
       and ${params.loadKw} <= ntr.load_max_kw
       and (${params.state}::text is null or nt.state ilike ${`%${params.state ?? ""}%`} or td.state_codes @> ARRAY[${params.state ?? ""}]::text[])
       and coalesce(na.is_active, true) = true
-      and (
-        na.validation_status = 'VALIDATED'::normative_asset_validation_status
-        or nt.validation_status in ('VALIDATED', 'VALIDADA')
-      )
+      and ${validationFilter}
     order by
-      case when nt.validation_status = 'VALIDADA' then 0 else 1 end,
+      case when nt.validation_status = 'VALIDATED' then 0 else 1 end,
       case when nt.table_number = '2' then 0 else 1 end,
       ntr.row_index asc
     limit 5
   `);
+}
+
+function buildValidationDebug(
+  acceptedRows: TableLookupRow[],
+  blockedRows: TableLookupRow[],
+): NonNullable<NormativeTableLookupResult["validationDebug"]> {
+  return {
+    finalUsedValidatedTable: acceptedRows.length > 0,
+    acceptedTables: acceptedRows.map((row) => mapCandidate(row, "Tabela validada elegivel para resposta tecnica.")),
+    blockedTables: blockedRows.map((row) => mapCandidate(row, undefined, blockReasonForStatus(row.table_validation_status))),
+  };
+}
+
+function mapCandidate(
+  row: TableLookupRow,
+  acceptReason?: string,
+  blockReason?: string,
+): NormativeTableCandidate {
+  return {
+    tableId: row.table_id,
+    tableNumber: row.table_number,
+    title: row.title,
+    documentTitle: row.document_title,
+    versionLabel: row.version_label,
+    pageNumber: row.table_page_number,
+    concessionaire: row.concessionaire,
+    state: row.state,
+    voltage: row.table_voltage,
+    tableValidationStatus: row.table_validation_status,
+    assetValidationStatus: row.asset_validation_status,
+    rowIndex: row.row_index,
+    acceptReason,
+    blockReason,
+  };
+}
+
+function blockReasonForStatus(status: string | null) {
+  if (status === "PENDING") return "tabela ainda nao validada";
+  if (status === "REVIEW" || status === "NEEDS_REVIEW") return "tabela em revisao";
+  return "tabela ainda nao validada";
 }
 
 function mapRow(row: TableLookupRow): NormativeTableRowResult {

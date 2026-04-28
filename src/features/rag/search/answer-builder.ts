@@ -244,6 +244,16 @@ function buildTechnicalAnswer(
   const tableAnswer = buildNormativeTableAnswer(structuredLookup);
   if (tableAnswer) return tableAnswer;
 
+  if (requiresTableSelection(intent) && structuredLookup?.attempted && !structuredLookup.found && missingContext.length === 0) {
+    return {
+      answerType: "INSUFFICIENT",
+      confidence: 0.25,
+      answer:
+        "Consigo calcular/identificar a carga, mas ainda nao existe tabela estruturada validada suficiente para dimensionar cabo, disjuntor, eletroduto ou aterramento com seguranca. Valide a tabela normativa correspondente no painel administrativo.",
+      normativeSummary: "",
+    };
+  }
+
   const drawingAnswer = buildDrawingStructuredAnswer(intent, chunks);
   if (drawingAnswer) return drawingAnswer;
 
@@ -405,7 +415,7 @@ function buildEngineeringDimensioningAnswer(
       answerType: "INSUFFICIENT",
       confidence: 0.35,
       answer: [
-        "Consigo calcular/identificar a carga, mas a tabela estruturada nao possui linha confiavel para dimensionar cabo/disjuntor.",
+        "Consigo calcular/identificar a carga, mas ainda nao existe tabela estruturada validada suficiente para dimensionar cabo, disjuntor, eletroduto ou aterramento com seguranca. Valide a tabela normativa correspondente no painel administrativo.",
         "",
         formatLoadBasis(calculation),
         loadEntities.voltage ? `Tensao: ${loadEntities.voltage}.` : "",
@@ -416,7 +426,7 @@ function buildEngineeringDimensioningAnswer(
         "",
         `Motivo: ${lookup.reason}`,
         "",
-        "Nao vou inventar valores de cabo, disjuntor, eletroduto ou aterramento sem linha normativa validada.",
+        "Nao vou informar cabo, disjuntor, eletroduto ou aterramento como dimensionamento final sem linha normativa validada.",
       ].filter(Boolean).join("\n"),
       normativeSummary: "",
     };

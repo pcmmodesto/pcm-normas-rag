@@ -75,6 +75,13 @@ type StructuredLookup = {
   selectedRow?: Record<string, unknown>;
   candidateRows?: Record<string, unknown>[];
   kvaKwNotice?: string;
+  validationDebug?: ValidationDebug;
+};
+
+type ValidationDebug = {
+  finalUsedValidatedTable?: boolean;
+  acceptedTables?: Record<string, unknown>[];
+  blockedTables?: Record<string, unknown>[];
 };
 
 type DebugResult = {
@@ -347,6 +354,7 @@ function LoadDebugPanel({
   const equipments = entities?.equipments ?? [];
   const table = getRecord(lookup?.table);
   const row = getRecord(lookup?.row);
+  const validationDebug = getRecord(lookup?.validationDebug) as ValidationDebug | undefined;
   return (
     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
       <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-900">
@@ -364,6 +372,7 @@ function LoadDebugPanel({
         <Row label="Concessionaria" value={String(table?.concessionaire ?? "-")} />
         <Row label="Lookup tabela" value={String(lookup?.status ?? "-")} />
         <Row label="Tabela candidata" value={String(table?.tableNumber ?? "-")} />
+        <Row label="Usou validada" value={validationDebug?.finalUsedValidatedTable ? "sim" : "nao"} />
         <Row label="Linha escolhida" value={String(row?.rowIndex ?? "-")} />
         <Row label="Motivo" value={String(lookup?.reason ?? "-")} />
       </div>
@@ -401,6 +410,12 @@ function LoadDebugPanel({
         )}
         {table && <JsonBox title="Tabela candidata" value={table} />}
         {row && <JsonBox title="Linha escolhida" value={row} />}
+        {validationDebug?.blockedTables && validationDebug.blockedTables.length > 0 && (
+          <JsonBox title="Tabelas candidatas pendentes/bloqueadas" value={validationDebug.blockedTables} />
+        )}
+        {validationDebug?.acceptedTables && validationDebug.acceptedTables.length > 0 && (
+          <JsonBox title="Tabelas validadas disponiveis" value={validationDebug.acceptedTables} />
+        )}
         {lookup && <JsonBox title="Motivo da escolha/rejeicao" value={lookup?.reason ?? lookup} />}
       </div>
     </div>
@@ -427,6 +442,7 @@ function StructuredLookupPanel({ lookup }: { lookup: StructuredLookup }) {
         <Row label="Modo" value={lookup.mode} />
         <Row label="Executada" value={lookup.attempted ? "sim" : "nao"} />
         <Row label="Tabela encontrada" value={lookup.found ? "sim" : "nao"} />
+        <Row label="Usou tabela validada" value={lookup.validationDebug?.finalUsedValidatedTable ? "sim" : "nao"} />
         <Row label="Motivo" value={lookup.reason} />
       </div>
       {lookup.kvaKwNotice && (
@@ -440,6 +456,12 @@ function StructuredLookupPanel({ lookup }: { lookup: StructuredLookup }) {
         )}
         {lookup.selectedRow && (
           <JsonBox title="Linha selecionada" value={lookup.selectedRow} />
+        )}
+        {lookup.validationDebug?.acceptedTables && lookup.validationDebug.acceptedTables.length > 0 && (
+          <JsonBox title="Tabelas validadas disponiveis" value={lookup.validationDebug.acceptedTables} />
+        )}
+        {lookup.validationDebug?.blockedTables && lookup.validationDebug.blockedTables.length > 0 && (
+          <JsonBox title="Tabelas candidatas pendentes/bloqueadas" value={lookup.validationDebug.blockedTables} />
         )}
       </div>
       {lookup.candidateRows && lookup.candidateRows.length > 0 && (

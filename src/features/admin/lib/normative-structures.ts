@@ -177,7 +177,7 @@ export async function getAdminNormativeTables(limit = 20): Promise<AdminNormativ
     state: table.state,
     voltage: table.voltage,
     category: table.category,
-    validationStatus: table.validation_status ?? "NAO_VALIDADA",
+    validationStatus: table.validation_status ?? "PENDING",
     validationNotes: table.validation_notes,
     validatedAt: table.validated_at,
     rowCount: table.row_count,

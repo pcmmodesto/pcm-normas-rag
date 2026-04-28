@@ -50,7 +50,7 @@ export function NormativeTablesClient({ initialFigures, initialTables }: Props) 
     }
   }
 
-  async function validateTable(tableId: string, validationStatus: "VALIDADA" | "NAO_VALIDADA") {
+  async function validateTable(tableId: string, validationStatus: "VALIDATED" | "PENDING") {
     setBusy(tableId);
     setMessage(null);
     try {
@@ -70,7 +70,7 @@ export function NormativeTablesClient({ initialFigures, initialTables }: Props) 
             ? {
                 ...table,
                 validationStatus,
-                validatedAt: validationStatus === "VALIDADA" ? new Date() : null,
+                validatedAt: validationStatus === "VALIDATED" ? new Date() : null,
               }
             : table,
         ),
@@ -143,16 +143,16 @@ export function NormativeTablesClient({ initialFigures, initialTables }: Props) 
               </div>
               <div className="flex flex-wrap gap-2">
                 <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                  table.validationStatus === "VALIDADA"
+                  table.validationStatus === "VALIDATED"
                     ? "bg-green-100 text-green-800"
                     : "bg-amber-100 text-amber-800"
                 }`}>
-                  {table.validationStatus === "VALIDADA" ? "validada" : "nao validada"}
+                  {table.validationStatus === "VALIDATED" ? "validada" : "nao validada"}
                 </span>
                 <button
                   className="rounded-lg border border-green-200 px-3 py-1.5 text-xs font-semibold text-green-800 disabled:opacity-50"
                   disabled={busy === table.id}
-                  onClick={() => validateTable(table.id, "VALIDADA")}
+                  onClick={() => validateTable(table.id, "VALIDATED")}
                   type="button"
                 >
                   Validar
@@ -160,7 +160,7 @@ export function NormativeTablesClient({ initialFigures, initialTables }: Props) 
                 <button
                   className="rounded-lg border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-800 disabled:opacity-50"
                   disabled={busy === table.id}
-                  onClick={() => validateTable(table.id, "NAO_VALIDADA")}
+                  onClick={() => validateTable(table.id, "PENDING")}
                   type="button"
                 >
                   Marcar pendente
