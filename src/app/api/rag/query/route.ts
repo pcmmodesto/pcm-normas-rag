@@ -334,7 +334,7 @@ export async function POST(request: Request) {
       }]
     : [];
 
-  const sources = await attachEvidenceUrls([...serviceEntranceSource, ...structuredSource, ...passing.map((c) => ({
+  const chunkSources = passing.map((c) => ({
     documentTitle: c.document_title,
     versionLabel: c.version_label,
     pageNumber: c.page_number,
@@ -367,7 +367,18 @@ export async function POST(request: Request) {
     documentType: c.document_type,
     metadata: c.metadata,
     score: c.score,
-  }))]);
+  }));
+
+  const sourceRefs =
+    responseMode === "LOAD_ESTIMATION"
+      ? []
+      : serviceEntranceSource.length > 0
+        ? serviceEntranceSource
+        : responseMode === "ENGINEERING_DIMENSIONING"
+          ? []
+          : [...structuredSource, ...chunkSources];
+
+  const sources = await attachEvidenceUrls(sourceRefs);
 
   return NextResponse.json({
     ok: true,
