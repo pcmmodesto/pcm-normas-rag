@@ -49,6 +49,31 @@ export async function PATCH(
     where id = ${id}
   `;
 
+  const tableStatus = validationStatus === "VALIDATED"
+    ? "VALIDATED"
+    : validationStatus === "NEEDS_REVIEW" || validationStatus === "REJECTED"
+      ? "REVIEW"
+      : validationStatus === "PENDING"
+        ? "PENDING"
+        : isActive === false
+          ? "INACTIVE"
+          : null;
+
+  if (tableStatus || isActive !== null) {
+    await prisma.$executeRaw`
+      update normative_tables
+      set
+        validation_status = coalesce(${tableStatus}, validation_status),
+        validated_at = case
+          when ${tableStatus} = 'VALIDATED' then now()
+          when ${tableStatus} is not null and ${tableStatus} <> 'VALIDATED' then null
+          else validated_at
+        end,
+        updated_at = now()
+      where asset_id = ${id}
+    `;
+  }
+
   const rows = await prisma.$queryRaw<Array<{
     validation_status: string;
     is_active: boolean;

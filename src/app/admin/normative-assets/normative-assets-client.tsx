@@ -9,8 +9,33 @@ type Props = {
 
 export function NormativeAssetsClient({ initialAssets }: Props) {
   const [assets, setAssets] = useState(initialAssets);
+  const [statusFilter, setStatusFilter] = useState("VALIDATED");
+  const [typeFilter, setTypeFilter] = useState("ALL");
+  const [activeFilter, setActiveFilter] = useState("ACTIVE");
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  const counts = buildCounts(assets);
+  const types = Array.from(new Set(assets.map((asset) => asset.type))).sort();
+  const filteredAssets = assets.filter((asset) => {
+    const matchesStatus = statusFilter === "ALL" || asset.validationStatus === statusFilter;
+    const matchesType = typeFilter === "ALL" || asset.type === typeFilter;
+    const matchesActive =
+      activeFilter === "ALL" ||
+      (activeFilter === "ACTIVE" ? asset.isActive : !asset.isActive);
+    const haystack = [
+      asset.title,
+      asset.code,
+      asset.documentTitle,
+      asset.concessionaire,
+      asset.state,
+      asset.voltageLevel,
+      ...asset.tags,
+    ].filter(Boolean).join(" ").toLowerCase();
+    const matchesQuery = !query.trim() || haystack.includes(query.trim().toLowerCase());
+    return matchesStatus && matchesType && matchesActive && matchesQuery;
+  });
 
   async function updateAsset(asset: AdminNormativeAsset, patch: Record<string, unknown>) {
     setBusy(asset.id);
@@ -36,6 +61,55 @@ export function NormativeAssetsClient({ initialAssets }: Props) {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="grid gap-3 md:grid-cols-4">
+          <Metric label="Validados ativos" value={counts.validatedActive} tone="green" />
+          <Metric label="Pendentes/revisao" value={counts.pendingOrReview} tone="amber" />
+          <Metric label="Inativos" value={counts.inactive} tone="slate" />
+          <Metric label="Total carregado" value={assets.length} tone="blue" />
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1.4fr_0.8fr_0.8fr_0.8fr]">
+          <input
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#19A7E8]"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar por tabela, documento, UF, concessionaria..."
+            value={query}
+          />
+          <select
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#19A7E8]"
+            onChange={(event) => setStatusFilter(event.target.value)}
+            value={statusFilter}
+          >
+            <option value="VALIDATED">Somente validados</option>
+            <option value="PENDING">Pendentes</option>
+            <option value="NEEDS_REVIEW">Precisa revisar</option>
+            <option value="REJECTED">Rejeitados</option>
+            <option value="ALL">Todos os status</option>
+          </select>
+          <select
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#19A7E8]"
+            onChange={(event) => setTypeFilter(event.target.value)}
+            value={typeFilter}
+          >
+            <option value="ALL">Todos os tipos</option>
+            {types.map((type) => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+          <select
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#19A7E8]"
+            onChange={(event) => setActiveFilter(event.target.value)}
+            value={activeFilter}
+          >
+            <option value="ACTIVE">Somente ativos</option>
+            <option value="INACTIVE">Somente inativos</option>
+            <option value="ALL">Ativos e inativos</option>
+          </select>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">
+          Exibindo {filteredAssets.length} de {assets.length}. Por padrao, esta tela mostra apenas ativos validados e ativos.
+        </p>
+      </div>
       {message && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           {message}
@@ -46,7 +120,11 @@ export function NormativeAssetsClient({ initialAssets }: Props) {
           Nenhum ativo normativo cadastrado. Reprocesse um documento para gerar ativos.
         </div>
       ) : (
-        assets.map((asset) => (
+        filteredAssets.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+            Nenhum ativo encontrado com os filtros atuais.
+          </div>
+        ) : filteredAssets.map((asset) => (
           <AssetCard
             asset={asset}
             busy={busy === asset.id}
@@ -55,6 +133,40 @@ export function NormativeAssetsClient({ initialAssets }: Props) {
           />
         ))
       )}
+    </div>
+  );
+}
+
+function buildCounts(assets: AdminNormativeAsset[]) {
+  return {
+    validatedActive: assets.filter((asset) => asset.validationStatus === "VALIDATED" && asset.isActive).length,
+    pendingOrReview: assets.filter((asset) =>
+      asset.validationStatus === "PENDING" || asset.validationStatus === "NEEDS_REVIEW",
+    ).length,
+    inactive: assets.filter((asset) => !asset.isActive).length,
+  };
+}
+
+function Metric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "green" | "amber" | "slate" | "blue";
+}) {
+  const cls = {
+    green: "border-green-100 bg-green-50 text-green-800",
+    amber: "border-amber-100 bg-amber-50 text-amber-800",
+    slate: "border-slate-100 bg-slate-50 text-slate-700",
+    blue: "border-blue-100 bg-blue-50 text-blue-800",
+  }[tone];
+
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${cls}`}>
+      <p className="text-xs font-medium uppercase tracking-wide">{label}</p>
+      <p className="mt-1 text-2xl font-semibold">{value}</p>
     </div>
   );
 }

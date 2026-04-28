@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminNormativeAssetsPage() {
   const assets = await adminQuery(
     "admin normative assets",
-    () => getAdminNormativeAssets(120),
+    () => getAdminNormativeAssets(500),
     [],
   );
 
