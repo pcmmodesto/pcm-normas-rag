@@ -5,6 +5,7 @@ import { useState } from "react";
 
 type ProcessDocumentButtonProps = {
   versionId: string;
+  disabled?: boolean;
 };
 
 type ProcessResult = {
@@ -14,7 +15,7 @@ type ProcessResult = {
   chunks?: number;
 };
 
-export function ProcessDocumentButton({ versionId }: ProcessDocumentButtonProps) {
+export function ProcessDocumentButton({ versionId, disabled = false }: ProcessDocumentButtonProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; message: string } | null>(null);
@@ -60,11 +61,11 @@ export function ProcessDocumentButton({ versionId }: ProcessDocumentButtonProps)
     <div className="flex flex-col gap-1">
       <button
         className="rounded-lg bg-[#123C7C] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#0A1633] disabled:opacity-60"
-        disabled={isSubmitting}
+        disabled={disabled || isSubmitting}
         onClick={handleClick}
         type="button"
       >
-        {isSubmitting ? "Processando..." : "Processar documento"}
+        {disabled ? "Arquivado" : isSubmitting ? "Processando..." : "Processar documento"}
       </button>
       {feedback && (
         <p

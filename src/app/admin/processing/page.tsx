@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { adminQuery } from "@/features/admin/lib/admin-database";
 import { getAdminDocumentVersions } from "@/features/admin/lib/admin-documents";
+import { ArchiveVersionButton } from "@/features/documents/components/archive-version-button";
 import { DeleteDocumentButton } from "@/features/documents/components/delete-document-button";
 import { ProcessDocumentButton } from "@/features/documents/components/process-document-button";
 
@@ -106,7 +107,14 @@ export default async function AdminProcessingPage() {
                       </td>
                       <td className="px-3 py-4">
                         <div className="flex flex-col gap-2 xl:flex-row">
-                          <ProcessDocumentButton versionId={version.id} />
+                          <ProcessDocumentButton
+                            disabled={version.status === "ARCHIVED"}
+                            versionId={version.id}
+                          />
+                          <ArchiveVersionButton
+                            isArchived={version.status === "ARCHIVED"}
+                            versionId={version.id}
+                          />
                           <DeleteDocumentButton
                             documentId={version.documentId}
                             documentTitle={version.documentTitle}

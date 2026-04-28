@@ -1,9 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import {
-  TABLE_2_127_220_ROWS,
-  ensureNormativeTableSchema,
-} from "@/features/rag/processing/normative-table-2";
+import { ensureNormativeTableSchema } from "@/features/rag/processing/normative-table-2";
 import type { TechnicalEntities } from "./intent-classifier";
 
 export type NormativeTableLookupResult = {
@@ -145,7 +142,7 @@ export async function lookupNormativeSizingTable(
   } catch (error) {
     queryError = error instanceof Error ? error.message : "Erro ao consultar tabelas estruturadas.";
   }
-  const selected = rows[0] ?? findKnownTable2Row({ loadKw, supplyType, voltage, state });
+  const selected = rows[0] ?? null;
 
   if (!selected) {
     return {
@@ -158,35 +155,32 @@ export async function lookupNormativeSizingTable(
     };
   }
 
-  const selectedRow = "row_id" in selected ? mapRow(selected) : selected;
-  const table =
-    "table_id" in selected
-      ? {
-          id: selected.table_id,
-          tableNumber: selected.table_number,
-          title: selected.title,
-          pageNumber: selected.table_page_number,
-          concessionaire: selected.concessionaire,
-          state: selected.state,
-          voltage: selected.table_voltage,
-          category: selected.category,
-          documentTitle: selected.document_title,
-          versionLabel: selected.version_label,
-          imageStoragePath: selected.image_storage_path,
-          validationStatus: selected.asset_validation_status ?? selected.table_validation_status,
-        }
-      : knownTable2Metadata();
+  const selectedRow = mapRow(selected);
+  const table = {
+    id: selected.table_id,
+    tableNumber: selected.table_number,
+    title: selected.title,
+    pageNumber: selected.table_page_number,
+    concessionaire: selected.concessionaire,
+    state: selected.state,
+    voltage: selected.table_voltage,
+    category: selected.category,
+    documentTitle: selected.document_title,
+    versionLabel: selected.version_label,
+    imageStoragePath: selected.image_storage_path,
+    validationStatus: selected.asset_validation_status ?? selected.table_validation_status,
+  };
 
   return {
     mode: "TABLE_LOOKUP",
     attempted: true,
     found: true,
     reason: queryError
-      ? `Linha selecionada por fallback estruturado local. Consulta SQL: ${queryError}`
+      ? `Linha selecionada pela base estruturada validada. Observacao SQL: ${queryError}`
       : `Linha selecionada por tensao ${voltage}, tipo ${supplyType} e carga ${loadKw} kW dentro da faixa.`,
     table,
     selectedRow,
-    candidateRows: rows.length > 0 ? rows.map(mapRow) : [selectedRow],
+    candidateRows: rows.map(mapRow),
     kvaKwNotice: entities.hasKva ? kvaKwNotice(entities.installedLoadKva) : undefined,
   };
 }
@@ -239,6 +233,7 @@ async function queryRows(params: {
     join document_versions dv on dv.id = nt.document_version_id
     join technical_documents td on td.id = dv.document_id
     where dv.processing_status = 'READY'
+      and dv.status <> 'ARCHIVED'::version_status
       and ntr.voltage = ${params.voltage}
       and ntr.supply_type = ${params.supplyType}
       and (${params.loadKw} >= coalesce(ntr.load_min_kw, -999999))
@@ -280,66 +275,6 @@ function mapRow(row: TableLookupRow): NormativeTableRowResult {
     notes: row.notes,
     rawText: row.raw_text,
     pageNumber: row.page_number,
-  };
-}
-
-function findKnownTable2Row(params: {
-  loadKw: number;
-  supplyType: string;
-  voltage: string;
-  state: string | null;
-}): NormativeTableRowResult | null {
-  if (params.voltage !== "127/220V") return null;
-  if (params.state && params.state !== "PA") return null;
-
-  const row = TABLE_2_127_220_ROWS.find(
-    (item) =>
-      item.supplyType === params.supplyType &&
-      params.loadKw >= (item.loadMinKw ?? -999999) &&
-      params.loadKw <= item.loadMaxKw,
-  );
-
-  if (!row) return null;
-
-  return {
-    id: `known-table-2-row-${row.rowIndex}`,
-    rowIndex: row.rowIndex,
-    method: "CARGA_INSTALADA",
-    supplyType: row.supplyType,
-    loadMinKw: row.loadMinKw,
-    loadMaxKw: row.loadMaxKw,
-    voltage: "127/220V",
-    breakerAmp: row.breakerAmp,
-    breakerType: row.breakerType,
-    copperConcentricMm2: row.copperConcentricMm2,
-    copperMultiplexedMm2: row.copperMultiplexedMm2,
-    aluminumDuplexMm2: row.aluminumDuplexMm2,
-    aluminumTriplexMm2: row.aluminumTriplexMm2,
-    aluminumQuadruplexMm2: row.aluminumQuadruplexMm2,
-    galvanizedSteelConduitInch: row.galvanizedSteelConduitInch,
-    customerPhaseNeutralConductorMm2: row.customerPhaseNeutralConductorMm2,
-    groundingConductorMm2: row.groundingConductorMm2,
-    groundingConduitInch: row.groundingConduitInch,
-    notes: row.notes ?? null,
-    rawText: null,
-    pageNumber: 32,
-  };
-}
-
-function knownTable2Metadata(): NonNullable<NormativeTableLookupResult["table"]> {
-  return {
-    id: "known-table-2-127-220",
-    tableNumber: "2",
-    title: "Dimensionamento do Ramal de Conexao e Entrada das Instalacoes em 127/220V",
-    pageNumber: 32,
-    concessionaire: "Equatorial Para",
-    state: "PA",
-    voltage: "127/220V",
-    category: "SERVICE_ENTRANCE_SIZING",
-    documentTitle: "NT.00001.EQTL-09-Fornecimento-de-Energia-Eletrica-em-Baixa-Tensao",
-    versionLabel: "2025.1",
-    imageStoragePath: null,
-    validationStatus: "VALIDATED",
   };
 }
 

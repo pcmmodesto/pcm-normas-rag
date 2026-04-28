@@ -29,6 +29,20 @@ export async function POST(
   const { id } = await context.params;
 
   try {
+    const versions = await prisma.$queryRaw<Array<{ status: string }>>`
+      select status::text
+      from document_versions
+      where id = ${id}
+      limit 1
+    `;
+
+    if (versions[0]?.status === "ARCHIVED") {
+      return NextResponse.json(
+        { ok: false, message: "Versoes arquivadas nao podem ser reprocessadas. Cadastre uma nova versao da norma." },
+        { status: 409 },
+      );
+    }
+
     await prisma.$executeRaw`
       update document_versions
       set

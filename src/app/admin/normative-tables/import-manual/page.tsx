@@ -38,6 +38,7 @@ export default async function ImportManualPage() {
     from document_versions dv
     join technical_documents td on td.id = dv.document_id
     where dv.processing_status = 'READY'
+      and dv.status <> 'ARCHIVED'::version_status
     order by td.title asc, dv.version_label desc
     limit 200
   `.catch(() => []);

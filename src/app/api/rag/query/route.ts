@@ -544,6 +544,7 @@ async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {
       join document_versions dv on dv.id = dc.document_version_id
       join technical_documents td on td.id = dv.document_id
       where dv.processing_status = 'READY'
+        and dv.status <> 'ARCHIVED'::version_status
         and dc.is_low_value = FALSE
         and dc.is_searchable = TRUE
         and (${conditions})
