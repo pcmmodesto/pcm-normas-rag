@@ -1,6 +1,9 @@
 import type { QueryAudience, TechnicalIntent } from "./intent-classifier";
 import { INTENT_LABELS } from "./intent-classifier";
 import type { NormativeTableLookupResult, NormativeTableRowResult } from "./normative-table-lookup";
+import type { InstalledLoadCalculation } from "@/features/rag/technical/load-calculator";
+import type { LoadEntities } from "@/features/rag/technical/load-entity-extractor";
+import type { ServiceEntranceLookupResult } from "@/features/rag/technical/normative-table-lookup";
 
 export type AnswerType = "DIRECT" | "PARTIAL" | "INSUFFICIENT" | "NEEDS_CONTEXT";
 
@@ -10,6 +13,8 @@ export type BuiltAnswer = {
   answer: string;
   normativeSummary: string;
 };
+
+export type TechnicalResponseMode = "STANDARD_RAG" | "LOAD_ESTIMATION" | "ENGINEERING_DIMENSIONING";
 
 export type PassingChunk = {
   documentTitle: string;
@@ -223,7 +228,19 @@ function buildTechnicalAnswer(
   isSufficient: boolean,
   missingContext: string[],
   structuredLookup?: NormativeTableLookupResult,
+  loadEntities?: LoadEntities,
+  loadCalculation?: InstalledLoadCalculation,
+  serviceEntranceLookup?: ServiceEntranceLookupResult,
+  responseMode: TechnicalResponseMode = "STANDARD_RAG",
 ): BuiltAnswer {
+  if (responseMode === "LOAD_ESTIMATION" && loadEntities && loadCalculation) {
+    return buildLoadEstimationAnswer(loadEntities, loadCalculation);
+  }
+
+  if (responseMode === "ENGINEERING_DIMENSIONING" && loadEntities && loadCalculation) {
+    return buildEngineeringDimensioningAnswer(loadEntities, loadCalculation, serviceEntranceLookup);
+  }
+
   const tableAnswer = buildNormativeTableAnswer(structuredLookup);
   if (tableAnswer) return tableAnswer;
 
@@ -330,6 +347,159 @@ function buildTechnicalAnswer(
   };
 }
 
+function buildLoadEstimationAnswer(
+  loadEntities: LoadEntities,
+  calculation: InstalledLoadCalculation,
+): BuiltAnswer {
+  const rows = calculation.items.map((item) =>
+    [
+      item.displayName,
+      String(item.quantity),
+      `${formatNumber(item.unitPowerW)} W`,
+      `${formatNumber(item.totalPowerW)} W`,
+    ].join(" | "),
+  );
+  const missing = loadEntities.missingContext.length > 0
+    ? loadEntities.missingContext.map((item) => `- ${item}`).join("\n")
+    : "- tensao de atendimento\n- tipo de ligacao\n- cidade/estado ou concessionaria/tabela aplicavel";
+
+  return {
+    answerType: "NEEDS_CONTEXT",
+    confidence: calculation.confidence,
+    answer: [
+      "Carga instalada estimada",
+      "",
+      "Equipamento | Quantidade | Potencia unitaria adotada | Subtotal",
+      ...rows,
+      "",
+      `Total estimado: ${formatNumber(calculation.totalPowerW)} W (${formatNumber(calculation.totalPowerKw)} kW).`,
+      calculation.estimatedKva
+        ? `kVA estimado: ${formatNumber(calculation.estimatedKva)} kVA.`
+        : "",
+      "",
+      "Premissas:",
+      ...calculation.assumptions.map((item) => `- ${item}`),
+      "",
+      "Dados faltantes para dimensionar cabo/disjuntor/padrao com seguranca:",
+      missing,
+      "",
+      "Avisos:",
+      ...calculation.warnings.map((item) => `- ${item}`),
+      "- A potencia definitiva deve ser validada por placa, catalogo do fabricante ou projeto eletrico.",
+    ].filter(Boolean).join("\n"),
+    normativeSummary: "",
+  };
+}
+
+function buildEngineeringDimensioningAnswer(
+  loadEntities: LoadEntities,
+  calculation: InstalledLoadCalculation,
+  lookup?: ServiceEntranceLookupResult,
+): BuiltAnswer {
+  if (!lookup || lookup.status === "MISSING_CONTEXT") {
+    const missing = Array.from(
+      new Set([...(lookup?.missingContext ?? []), ...loadEntities.missingContext]),
+    );
+    return {
+      answerType: "NEEDS_CONTEXT",
+      confidence: calculation.confidence,
+      answer: [
+        "Consigo calcular/estimar a carga, mas ainda nao posso dimensionar cabo/disjuntor com seguranca.",
+        "",
+        calculation.totalPowerKw
+          ? `Carga estimada: ${formatNumber(calculation.totalPowerKw)} kW${calculation.estimatedKva ? ` (${formatNumber(calculation.estimatedKva)} kVA estimado)` : ""}.`
+          : calculation.effectiveLoadKva
+            ? `Carga informada: ${formatNumber(calculation.effectiveLoadKva)} kVA.`
+            : "",
+        "",
+        "Informe apenas os dados faltantes:",
+        ...missing.map((item) => `- ${item}`),
+      ].filter(Boolean).join("\n"),
+      normativeSummary: "",
+    };
+  }
+
+  if (lookup.status === "INSUFFICIENT_TABLE_DATA" || !lookup.table || !lookup.row) {
+    return {
+      answerType: "INSUFFICIENT",
+      confidence: 0.35,
+      answer: [
+        "Consigo calcular/identificar a carga, mas a tabela estruturada nao possui linha confiavel para dimensionar cabo/disjuntor.",
+        "",
+        formatLoadBasis(calculation),
+        loadEntities.voltage ? `Tensao: ${loadEntities.voltage}.` : "",
+        loadEntities.connectionType ? `Tipo de ligacao: ${formatSupplyType(loadEntities.connectionType)}.` : "",
+        loadEntities.city || loadEntities.state
+          ? `Localidade: ${[loadEntities.city, loadEntities.state].filter(Boolean).join("/")}.`
+          : "",
+        "",
+        `Motivo: ${lookup.reason}`,
+        "",
+        "Nao vou inventar valores de cabo, disjuntor, eletroduto ou aterramento sem linha normativa validada.",
+      ].filter(Boolean).join("\n"),
+      normativeSummary: "",
+    };
+  }
+
+  const row = lookup.row;
+  const table = lookup.table;
+  const cableLines = [...formatCopperLines(row), ...formatAluminumLines(row)];
+
+  return {
+    answerType: "DIRECT",
+    confidence: 0.9,
+    answer: [
+      "Dimensionamento preliminar conforme tabela normativa estruturada",
+      "",
+      "Dados considerados:",
+      formatLoadBasis(calculation),
+      loadEntities.voltage ? `Tensao: ${loadEntities.voltage}.` : "",
+      loadEntities.connectionType ? `Tipo de ligacao: ${formatSupplyType(loadEntities.connectionType)}.` : "",
+      loadEntities.city || loadEntities.state
+        ? `Localidade: ${[loadEntities.city, loadEntities.state].filter(Boolean).join("/")}.`
+        : "",
+      table.concessionaire ? `Concessionaria: ${table.concessionaire}.` : "",
+      "",
+      "Resultado da linha:",
+      `Disjuntor: ${row.breakerAmp ?? "-"} A${row.breakerType ? ` (${row.breakerType})` : ""}.`,
+      cableLines.length > 0 ? cableLines.join("\n") : "Cabo: nao informado na linha estruturada.",
+      `Eletroduto: ${row.galvanizedSteelConduitInch ?? "-"} pol.`,
+      `Condutor fase/neutro do cliente: ${formatNumber(row.customerPhaseNeutralConductorMm2)} mm2.`,
+      `Condutor de aterramento: ${formatNumber(row.groundingConductorMm2)} mm2.`,
+      `Eletroduto de aterramento: ${row.groundingConduitInch ?? "-"} pol.`,
+      "",
+      "Fonte:",
+      `${table.documentTitle}, revisao ${table.versionLabel}, Tabela ${table.tableNumber ?? "-"}, pagina ${table.pageNumber}.`,
+      "",
+      "Notas da tabela:",
+      row.notes || "Sem nota especifica estruturada para esta linha.",
+      "",
+      ...formatCalculationCautions(calculation),
+      "",
+      "Aviso tecnico: confirmar em projeto definitivo, potencias de placa/catalogo e norma vigente antes da execucao.",
+    ].filter(Boolean).join("\n"),
+    normativeSummary: `[${table.documentTitle} | ${table.versionLabel} | Tabela ${table.tableNumber ?? "-"} | Pag. ${table.pageNumber}]\n${row.rawText ?? lookup.reason}`,
+  };
+}
+
+function formatCalculationCautions(calculation: InstalledLoadCalculation) {
+  const cautions = [...calculation.assumptions, ...calculation.warnings];
+  if (cautions.length === 0) return [];
+
+  return [
+    "Premissas e avisos:",
+    ...cautions.map((caution) => `- ${caution}`),
+  ];
+}
+
+function formatLoadBasis(calculation: InstalledLoadCalculation) {
+  if (calculation.source === "INFORMED_LOAD") {
+    if (calculation.effectiveLoadKva) return `Carga informada: ${formatNumber(calculation.effectiveLoadKva)} kVA.`;
+    if (calculation.effectiveLoadKw) return `Carga informada: ${formatNumber(calculation.effectiveLoadKw)} kW.`;
+  }
+  return `Carga instalada estimada: ${formatNumber(calculation.totalPowerW)} W (${formatNumber(calculation.totalPowerKw)} kW), ${formatNumber(calculation.estimatedKva)} kVA estimado.`;
+}
+
 function buildNormativeTableAnswer(
   structuredLookup?: NormativeTableLookupResult,
 ): BuiltAnswer | null {
@@ -412,7 +582,7 @@ function formatSupplyType(value: string) {
   return value;
 }
 
-function formatCopperLines(row: NormativeTableRowResult) {
+function formatCopperLines(row: Pick<NormativeTableRowResult, "copperConcentricMm2" | "copperMultiplexedMm2">) {
   const lines: string[] = [];
   if (row.copperConcentricMm2) {
     lines.push(`Cabo de cobre concentrico: ${formatNumber(row.copperConcentricMm2)} mm2.`);
@@ -423,7 +593,7 @@ function formatCopperLines(row: NormativeTableRowResult) {
   return lines;
 }
 
-function formatAluminumLines(row: NormativeTableRowResult) {
+function formatAluminumLines(row: Pick<NormativeTableRowResult, "aluminumDuplexMm2" | "aluminumTriplexMm2" | "aluminumQuadruplexMm2">) {
   const lines: string[] = [];
   if (row.aluminumDuplexMm2) {
     lines.push(`Cabo de aluminio multiplexado duplex: ${formatNumber(row.aluminumDuplexMm2)} mm2.`);
@@ -437,7 +607,7 @@ function formatAluminumLines(row: NormativeTableRowResult) {
   return lines;
 }
 
-function formatPhaseNeutral(row: NormativeTableRowResult) {
+function formatPhaseNeutral(row: Pick<NormativeTableRowResult, "supplyType" | "groundingConductorMm2" | "customerPhaseNeutralConductorMm2">) {
   if (row.supplyType === "TRIFASICO" && row.groundingConductorMm2) {
     return `${formatNumber(row.customerPhaseNeutralConductorMm2)}(${formatNumber(row.groundingConductorMm2)})`;
   }
@@ -579,12 +749,38 @@ export function buildStructuredAnswer(params: {
   isSufficient: boolean;
   missingContext: string[];
   structuredLookup?: NormativeTableLookupResult;
+  responseMode?: TechnicalResponseMode;
+  loadEntities?: LoadEntities;
+  loadCalculation?: InstalledLoadCalculation;
+  serviceEntranceLookup?: ServiceEntranceLookupResult;
 }): BuiltAnswer {
-  const { audience, intent, question, chunks, isSufficient, missingContext, structuredLookup } = params;
+  const {
+    audience,
+    intent,
+    question,
+    chunks,
+    isSufficient,
+    missingContext,
+    structuredLookup,
+    responseMode,
+    loadEntities,
+    loadCalculation,
+    serviceEntranceLookup,
+  } = params;
 
-  if (audience === "LEIGO_ATENDIMENTO" || audience === "NORMA_REFERENCIA") {
+  if ((audience === "LEIGO_ATENDIMENTO" || audience === "NORMA_REFERENCIA") && responseMode === "STANDARD_RAG") {
     return buildLaypersonAnswer(question, chunks, isSufficient);
   }
 
-  return buildTechnicalAnswer(intent, chunks, isSufficient, missingContext, structuredLookup);
+  return buildTechnicalAnswer(
+    intent,
+    chunks,
+    isSufficient,
+    missingContext,
+    structuredLookup,
+    loadEntities,
+    loadCalculation,
+    serviceEntranceLookup,
+    responseMode,
+  );
 }

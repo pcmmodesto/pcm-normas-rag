@@ -18,9 +18,12 @@ import {
   type TechnicalIntent,
 } from "@/features/rag/search/intent-classifier";
 import { scoreChunkDetailed, scoreChunkForLeigo } from "@/features/rag/search/chunk-scorer";
-import { buildStructuredAnswer } from "@/features/rag/search/answer-builder";
+import { buildStructuredAnswer, type TechnicalResponseMode } from "@/features/rag/search/answer-builder";
 import { lookupNormativeSizingTable } from "@/features/rag/search/normative-table-lookup";
 import { classifyQuestion } from "@/features/rag/lib/classify-question";
+import { extractLoadEntities } from "@/features/rag/technical/load-entity-extractor";
+import { calculateInstalledLoad } from "@/features/rag/technical/load-calculator";
+import { lookupServiceEntranceTable } from "@/features/rag/technical/normative-table-lookup";
 
 export const runtime = "nodejs";
 
@@ -102,6 +105,24 @@ type ScoredChunk = ChunkRow & {
   sourceRole?: "MAIN" | "AUXILIARY" | "REJECTED";
 };
 
+function detectTechnicalResponseMode(loadEntities: ReturnType<typeof extractLoadEntities>): TechnicalResponseMode {
+  if (loadEntities.hasServiceRequest && !loadEntities.hasEquipmentList && !loadEntities.informedLoad) {
+    return "STANDARD_RAG";
+  }
+
+  if (loadEntities.informedLoad && loadEntities.hasDimensioningRequest) {
+    return "ENGINEERING_DIMENSIONING";
+  }
+
+  if (loadEntities.hasEquipmentList) {
+    return loadEntities.missingContext.length === 0 && loadEntities.hasDimensioningRequest
+      ? "ENGINEERING_DIMENSIONING"
+      : "LOAD_ESTIMATION";
+  }
+
+  return "STANDARD_RAG";
+}
+
 export async function POST(request: Request) {
   let question: string;
   let debug: boolean;
@@ -124,6 +145,9 @@ export async function POST(request: Request) {
     ? "TECNICO_DIMENSIONAMENTO"
     : classifiedAudience;
   const productClassification = classifyQuestion(question);
+  const loadEntities = extractLoadEntities(question);
+  const loadCalculation = calculateInstalledLoad(loadEntities);
+  const responseMode = detectTechnicalResponseMode(loadEntities);
   const technicalEntities = extractTechnicalEntities(question);
   const missingContext = Array.from(
     new Set([
@@ -132,7 +156,27 @@ export async function POST(request: Request) {
     ]),
   );
   const keywords = extractKeywords(question);
-  const structuredLookup = await lookupNormativeSizingTable(technicalEntities);
+  const structuredLookup =
+    responseMode === "STANDARD_RAG"
+      ? await lookupNormativeSizingTable(technicalEntities)
+      : {
+          mode: "TABLE_LOOKUP" as const,
+          attempted: false,
+          found: false,
+          reason: "Consulta estruturada antiga ignorada por modo de carga/dimensionamento.",
+          candidateRows: [],
+        };
+  const serviceEntranceLookup =
+    responseMode === "ENGINEERING_DIMENSIONING"
+      ? await lookupServiceEntranceTable({
+          loadKw: loadCalculation.effectiveLoadKw,
+          loadKva: loadCalculation.effectiveLoadKva,
+          voltage: loadEntities.voltage,
+          connectionType: loadEntities.connectionType,
+          state: loadEntities.state,
+          utility: loadEntities.state === "PA" ? "Equatorial" : null,
+        })
+      : undefined;
 
   const isLeigo =
     (audience === "LEIGO_ATENDIMENTO" || audience === "NORMA_REFERENCIA") &&
@@ -180,9 +224,16 @@ export async function POST(request: Request) {
   const passing = (requiresStrongSource ? mainPassing : passingAll).slice(0, 3);
 
   const isSufficient =
+    responseMode === "LOAD_ESTIMATION" ||
+    serviceEntranceLookup?.status === "FOUND" ||
     structuredLookup.found ||
     (passing.length > 0 && (!requiresStrongSource || hasStrongTechnicalSource));
-  const effectiveMissingContext = structuredLookup.found ? [] : missingContext;
+  const effectiveMissingContext =
+    responseMode !== "STANDARD_RAG"
+      ? loadEntities.missingContext
+      : structuredLookup.found
+        ? []
+        : missingContext;
 
   const { answerType, confidence, answer, normativeSummary } = buildStructuredAnswer({
     audience,
@@ -199,6 +250,10 @@ export async function POST(request: Request) {
     isSufficient,
     missingContext: effectiveMissingContext,
     structuredLookup,
+    responseMode,
+    loadEntities,
+    loadCalculation,
+    serviceEntranceLookup,
   });
 
   const structuredSource = structuredLookup.found && structuredLookup.table && structuredLookup.selectedRow
@@ -240,8 +295,46 @@ export async function POST(request: Request) {
         score: 999,
       }]
     : [];
+  const serviceEntranceSource = serviceEntranceLookup?.status === "FOUND" && serviceEntranceLookup.table && serviceEntranceLookup.row
+    ? [{
+        documentTitle: serviceEntranceLookup.table.documentTitle,
+        versionLabel: serviceEntranceLookup.table.versionLabel,
+        pageNumber: serviceEntranceLookup.table.pageNumber,
+        chunkIndex: serviceEntranceLookup.row.rowIndex,
+        chunkType: "NORMATIVE_TABLE_ROW",
+        pageType: "TABLE",
+        technicalIntent: "ENGINEERING_DIMENSIONING",
+        topic: `Tabela ${serviceEntranceLookup.table.tableNumber} - ${serviceEntranceLookup.table.title}`,
+        sourceQuality: "STRUCTURED_TABLE",
+        flags: {
+          isTable: true,
+          isFigure: false,
+          isSummary: false,
+          isCover: false,
+          isDefinition: false,
+          isRequirement: true,
+          isProcedure: false,
+          isSizingCriteria: true,
+        },
+        sectionNumber: null,
+        sectionTitle: null,
+        tableNumber: serviceEntranceLookup.table.tableNumber,
+        tableTitle: serviceEntranceLookup.table.title,
+        excerpt: serviceEntranceLookup.row.rawText ?? serviceEntranceLookup.reason,
+        concessionaire: serviceEntranceLookup.table.concessionaire,
+        stateCodes: serviceEntranceLookup.table.state ? serviceEntranceLookup.table.state.split(",") : [],
+        documentType: "NORMATIVE_TABLE",
+        metadata: {
+          mode: "ENGINEERING_DIMENSIONING",
+          selectedRow: serviceEntranceLookup.row,
+          imageStoragePath: serviceEntranceLookup.table.imageStoragePath,
+          validationStatus: serviceEntranceLookup.table.validationStatus,
+        },
+        score: 1000,
+      }]
+    : [];
 
-  const sources = await attachEvidenceUrls([...structuredSource, ...passing.map((c) => ({
+  const sources = await attachEvidenceUrls([...serviceEntranceSource, ...structuredSource, ...passing.map((c) => ({
     documentTitle: c.document_title,
     versionLabel: c.version_label,
     pageNumber: c.page_number,
@@ -280,6 +373,7 @@ export async function POST(request: Request) {
     ok: true,
     intent,
     intentLabel: INTENT_LABELS[intent],
+    responseMode,
     audience,
     audienceLabel: AUDIENCE_LABELS[audience],
     classification: productClassification,
@@ -304,6 +398,10 @@ export async function POST(request: Request) {
             classifiedAudience,
             classifiedAudienceLabel: AUDIENCE_LABELS[classifiedAudience],
             classificationMode: isLeigo ? "ATENDIMENTO" : "DIMENSIONAMENTO",
+            responseMode,
+            loadEntities,
+            loadCalculation,
+            serviceEntranceLookup,
             keywords,
             technicalEntities,
             structuredLookup,

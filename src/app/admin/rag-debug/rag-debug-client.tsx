@@ -44,7 +44,15 @@ type DebugInfo = {
   secondaryIntentLabels?: string[];
   audience: string;
   audienceLabel: string;
+  responseMode?: string;
   classificationMode?: string;
+  loadEntities?: {
+    equipments?: Array<Record<string, unknown>>;
+    missingContext?: string[];
+    [key: string]: unknown;
+  };
+  loadCalculation?: Record<string, unknown>;
+  serviceEntranceLookup?: Record<string, unknown>;
   keywords: string[];
   technicalEntities?: Record<string, unknown>;
   structuredLookup?: StructuredLookup;
@@ -75,6 +83,7 @@ type DebugResult = {
   intentLabel?: string;
   audience?: string;
   audienceLabel?: string;
+  responseMode?: string;
   answerType?: string;
   isSufficient?: boolean;
   termsSearched?: string[];
@@ -193,6 +202,7 @@ export function RagDebugClient() {
                 }
               />
               <Row label="Audiencia" value={`${debug.audience} - ${debug.audienceLabel}`} />
+              <Row label="Modo resposta" value={debug.responseMode ?? result.responseMode ?? "-"} />
               <Row label="Modo" value={debug.classificationMode ?? "-"} />
               <Row label="Score minimo" value={String(debug.minScore)} />
               <Row label="Candidatos / Aprovados" value={`${debug.candidateCount} / ${passing.length}`} />
@@ -206,6 +216,14 @@ export function RagDebugClient() {
               />
             </div>
           </div>
+
+          {(debug.loadEntities || debug.loadCalculation || debug.serviceEntranceLookup) && (
+            <LoadDebugPanel
+              calculation={debug.loadCalculation}
+              entities={debug.loadEntities}
+              lookup={debug.serviceEntranceLookup}
+            />
+          )}
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#123C7C]">
@@ -313,6 +331,43 @@ export function RagDebugClient() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function LoadDebugPanel({
+  entities,
+  calculation,
+  lookup,
+}: {
+  entities?: DebugInfo["loadEntities"];
+  calculation?: Record<string, unknown>;
+  lookup?: Record<string, unknown>;
+}) {
+  const equipments = entities?.equipments ?? [];
+  return (
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-900">
+        Carga e dimensionamento
+      </p>
+      <div className="grid gap-2 text-sm md:grid-cols-2 lg:grid-cols-4">
+        <Row label="Equipamentos" value={String(equipments.length)} />
+        <Row label="Carga total W" value={String(calculation?.totalPowerW ?? "-")} />
+        <Row label="Carga total kW" value={String(calculation?.totalPowerKw ?? "-")} />
+        <Row label="kVA estimado" value={String(calculation?.estimatedKva ?? "-")} />
+        <Row label="Tensao" value={String(entities?.voltage ?? "-")} />
+        <Row label="Ligacao" value={String(entities?.connectionType ?? "-")} />
+        <Row label="Cidade/UF" value={[entities?.city, entities?.state].filter(Boolean).join("/") || "-"} />
+        <Row label="Lookup tabela" value={String(lookup?.status ?? "-")} />
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        {equipments.length > 0 && <JsonBox title="Equipamentos extraidos" value={equipments} />}
+        {calculation && <JsonBox title="Calculo de carga" value={calculation} />}
+        {entities?.missingContext && entities.missingContext.length > 0 && (
+          <JsonBox title="Dados faltantes" value={entities.missingContext} />
+        )}
+        {lookup && <JsonBox title="Tabela / linha candidata" value={lookup} />}
+      </div>
     </div>
   );
 }
