@@ -351,14 +351,6 @@ function buildLoadEstimationAnswer(
   loadEntities: LoadEntities,
   calculation: InstalledLoadCalculation,
 ): BuiltAnswer {
-  const rows = calculation.items.map((item) =>
-    [
-      item.displayName,
-      String(item.quantity),
-      `${formatNumber(item.unitPowerW)} W`,
-      `${formatNumber(item.totalPowerW)} W`,
-    ].join(" | "),
-  );
   const missing = loadEntities.missingContext.length > 0
     ? loadEntities.missingContext.map((item) => `- ${item}`).join("\n")
     : "- tensao de atendimento\n- tipo de ligacao\n- cidade/estado ou concessionaria/tabela aplicavel";
@@ -367,25 +359,14 @@ function buildLoadEstimationAnswer(
     answerType: "NEEDS_CONTEXT",
     confidence: calculation.confidence,
     answer: [
-      "Carga instalada estimada",
-      "",
-      "Equipamento | Quantidade | Potencia unitaria adotada | Subtotal",
-      ...rows,
-      "",
-      `Total estimado: ${formatNumber(calculation.totalPowerW)} W (${formatNumber(calculation.totalPowerKw)} kW).`,
-      calculation.estimatedKva
-        ? `kVA estimado: ${formatNumber(calculation.estimatedKva)} kVA.`
-        : "",
-      "",
-      "Premissas:",
-      ...calculation.assumptions.map((item) => `- ${item}`),
+      ...formatInstalledLoadSection(calculation),
       "",
       "Dados faltantes para dimensionar cabo/disjuntor/padrao com seguranca:",
       missing,
       "",
-      "Avisos:",
-      ...calculation.warnings.map((item) => `- ${item}`),
-      "- A potencia definitiva deve ser validada por placa, catalogo do fabricante ou projeto eletrico.",
+      "Preciso desses dados para consultar a linha correta da tabela normativa estruturada.",
+      "",
+      ...formatTechnicalCautions(calculation),
     ].filter(Boolean).join("\n"),
     normativeSummary: "",
   };
@@ -406,14 +387,14 @@ function buildEngineeringDimensioningAnswer(
       answer: [
         "Consigo calcular/estimar a carga, mas ainda nao posso dimensionar cabo/disjuntor com seguranca.",
         "",
-        calculation.totalPowerKw
-          ? `Carga estimada: ${formatNumber(calculation.totalPowerKw)} kW${calculation.estimatedKva ? ` (${formatNumber(calculation.estimatedKva)} kVA estimado)` : ""}.`
-          : calculation.effectiveLoadKva
-            ? `Carga informada: ${formatNumber(calculation.effectiveLoadKva)} kVA.`
-            : "",
+        ...(calculation.items.length > 0 ? formatInstalledLoadSection(calculation) : [formatLoadBasis(calculation)]),
         "",
         "Informe apenas os dados faltantes:",
         ...missing.map((item) => `- ${item}`),
+        "",
+        "Preciso desses dados para consultar a linha correta da tabela normativa estruturada.",
+        "",
+        ...formatTechnicalCautions(calculation),
       ].filter(Boolean).join("\n"),
       normativeSummary: "",
     };
@@ -443,7 +424,6 @@ function buildEngineeringDimensioningAnswer(
 
   const row = lookup.row;
   const table = lookup.table;
-  const cableLines = [...formatCopperLines(row), ...formatAluminumLines(row)];
 
   return {
     answerType: "DIRECT",
@@ -451,8 +431,12 @@ function buildEngineeringDimensioningAnswer(
     answer: [
       "Dimensionamento preliminar conforme tabela normativa estruturada",
       "",
-      "Dados considerados:",
-      formatLoadBasis(calculation),
+      ...(calculation.items.length > 0 ? formatInstalledLoadSection(calculation) : [
+        "Dados considerados",
+        formatLoadBasis(calculation),
+      ]),
+      "",
+      "Dados tecnicos considerados",
       loadEntities.voltage ? `Tensao: ${loadEntities.voltage}.` : "",
       loadEntities.connectionType ? `Tipo de ligacao: ${formatSupplyType(loadEntities.connectionType)}.` : "",
       loadEntities.city || loadEntities.state
@@ -460,36 +444,78 @@ function buildEngineeringDimensioningAnswer(
         : "",
       table.concessionaire ? `Concessionaria: ${table.concessionaire}.` : "",
       "",
-      "Resultado da linha:",
-      `Disjuntor: ${row.breakerAmp ?? "-"} A${row.breakerType ? ` (${row.breakerType})` : ""}.`,
-      cableLines.length > 0 ? cableLines.join("\n") : "Cabo: nao informado na linha estruturada.",
-      `Eletroduto: ${row.galvanizedSteelConduitInch ?? "-"} pol.`,
-      `Condutor fase/neutro do cliente: ${formatNumber(row.customerPhaseNeutralConductorMm2)} mm2.`,
-      `Condutor de aterramento: ${formatNumber(row.groundingConductorMm2)} mm2.`,
-      `Eletroduto de aterramento: ${row.groundingConduitInch ?? "-"} pol.`,
+      "Tabela normativa utilizada",
+      `Documento: ${table.documentTitle}.`,
+      `Revisao: ${table.versionLabel}.`,
+      `Concessionaria: ${table.concessionaire ?? "-"}.`,
+      `UF: ${table.state ?? loadEntities.state ?? "-"}.`,
+      `Tabela: ${table.tableNumber ?? "-"}${table.title ? ` - ${table.title}` : ""}.`,
+      `Pagina: ${table.pageNumber}.`,
+      `Linha/faixa aplicada: ${formatServiceEntranceAppliedRange(row)}.`,
+      `Criterio de escolha: ${lookup.reason}`,
       "",
-      "Fonte:",
-      `${table.documentTitle}, revisao ${table.versionLabel}, Tabela ${table.tableNumber ?? "-"}, pagina ${table.pageNumber}.`,
+      "Resultado do dimensionamento",
+      `Disjuntor: ${row.breakerAmp ?? "-"} A${row.breakerType ? ` (${row.breakerType})` : ""}.`,
+      `Cabo de cobre multiplexado: ${formatMm2(row.copperMultiplexedMm2)}.`,
+      row.aluminumDuplexMm2 ? `Cabo de aluminio multiplexado duplex: ${formatMm2(row.aluminumDuplexMm2)}.` : "",
+      row.aluminumTriplexMm2 ? `Cabo de aluminio multiplexado triplex: ${formatMm2(row.aluminumTriplexMm2)}.` : "",
+      row.aluminumQuadruplexMm2 ? `Cabo de aluminio multiplexado quadruplex: ${formatMm2(row.aluminumQuadruplexMm2)}.` : "",
+      `Eletroduto: ${row.galvanizedSteelConduitInch ?? "-"} pol.`,
+      `Condutor fase/neutro do cliente: ${formatMm2(row.customerPhaseNeutralConductorMm2)}.`,
+      `Condutor de aterramento: ${formatMm2(row.groundingConductorMm2)}.`,
+      `Eletroduto de aterramento: ${row.groundingConduitInch ?? "-"} pol.`,
       "",
       "Notas da tabela:",
       row.notes || "Sem nota especifica estruturada para esta linha.",
       "",
-      ...formatCalculationCautions(calculation),
-      "",
-      "Aviso tecnico: confirmar em projeto definitivo, potencias de placa/catalogo e norma vigente antes da execucao.",
+      ...formatTechnicalCautions(calculation),
     ].filter(Boolean).join("\n"),
     normativeSummary: `[${table.documentTitle} | ${table.versionLabel} | Tabela ${table.tableNumber ?? "-"} | Pag. ${table.pageNumber}]\n${row.rawText ?? lookup.reason}`,
   };
 }
 
-function formatCalculationCautions(calculation: InstalledLoadCalculation) {
-  const cautions = [...calculation.assumptions, ...calculation.warnings];
-  if (cautions.length === 0) return [];
+function formatInstalledLoadSection(calculation: InstalledLoadCalculation) {
+  const rows = calculation.items.map((item) =>
+    [
+      item.displayName,
+      String(item.quantity),
+      `${formatNumber(item.unitPowerW)} W`,
+      `${formatNumber(item.totalPowerW)} W`,
+    ].join(" | "),
+  );
 
   return [
-    "Premissas e avisos:",
-    ...cautions.map((caution) => `- ${caution}`),
+    "Estimativa de carga instalada",
+    "",
+    "Equipamento | Quantidade | Potencia unitaria adotada | Subtotal",
+    ...rows,
+    "",
+    `Total estimado: ${formatNumber(calculation.totalPowerW)} W / ${formatNumber(calculation.totalPowerKw)} kW.`,
+    calculation.estimatedKva
+      ? `kVA estimado: ${formatNumber(calculation.estimatedKva)} kVA, usando fator de potencia 0,92.`
+      : "",
   ];
+}
+
+function formatTechnicalCautions(calculation: InstalledLoadCalculation) {
+  const cautions = new Set<string>([...calculation.assumptions, ...calculation.warnings]);
+  addCautionIfMissing(cautions, "BTU/h representa capacidade termica", "BTU/h representa capacidade termica, nao potencia eletrica; para ar-condicionado, validar a potencia eletrica nominal.");
+  addCautionIfMissing(cautions, "catalogo tecnico", "As potencias unitarias vem do catalogo tecnico interno do sistema.");
+  addCautionIfMissing(cautions, "placa", "O dimensionamento definitivo deve validar potencia de placa, catalogo do fabricante ou projeto eletrico.");
+  cautions.add("Equipamentos nao declarados podem alterar o padrao de entrada.");
+  cautions.add("Exemplos que podem alterar o dimensionamento: chuveiro, bomba, forno eletrico, cooktop, maquina de solda, motor e carregador veicular.");
+  cautions.add("A execucao deve seguir a norma vigente da concessionaria.");
+
+  return [
+    "Premissas e alertas tecnicos",
+    ...Array.from(cautions).map((caution) => `- ${caution}`),
+  ];
+}
+
+function addCautionIfMissing(cautions: Set<string>, needle: string, caution: string) {
+  const normalizedNeedle = normalize(needle);
+  const exists = Array.from(cautions).some((item) => normalize(item).includes(normalizedNeedle));
+  if (!exists) cautions.add(caution);
 }
 
 function formatLoadBasis(calculation: InstalledLoadCalculation) {
@@ -574,6 +600,13 @@ function formatLoadRange(row: NormativeTableRowResult) {
   return `${formatNumber(row.loadMinKw)} a ${formatNumber(row.loadMaxKw)} kW`;
 }
 
+function formatServiceEntranceAppliedRange(row: NonNullable<ServiceEntranceLookupResult["row"]>) {
+  const loadRange = row.loadMinKw === null || row.loadMinKw === undefined
+    ? `ate ${formatNumber(row.loadMaxKw)} kW`
+    : `${formatNumber(row.loadMinKw)} a ${formatNumber(row.loadMaxKw)} kW`;
+  return `${loadRange}, ${formatSupplyType(row.supplyType ?? "-")}, ${row.voltage ?? "-"}`;
+}
+
 function formatSupplyType(value: string) {
   const normalized = value.toUpperCase();
   if (normalized === "TRIFASICO") return "trifasico";
@@ -612,6 +645,10 @@ function formatPhaseNeutral(row: Pick<NormativeTableRowResult, "supplyType" | "g
     return `${formatNumber(row.customerPhaseNeutralConductorMm2)}(${formatNumber(row.groundingConductorMm2)})`;
   }
   return `${formatNumber(row.customerPhaseNeutralConductorMm2)}`;
+}
+
+function formatMm2(value: number | null | undefined) {
+  return value === null || value === undefined ? "-" : `${formatNumber(value)} mm2`;
 }
 
 function formatNumber(value: number | null | undefined) {

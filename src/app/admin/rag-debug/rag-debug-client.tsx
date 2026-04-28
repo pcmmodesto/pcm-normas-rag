@@ -345,6 +345,8 @@ function LoadDebugPanel({
   lookup?: Record<string, unknown>;
 }) {
   const equipments = entities?.equipments ?? [];
+  const table = getRecord(lookup?.table);
+  const row = getRecord(lookup?.row);
   return (
     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
       <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-900">
@@ -357,19 +359,62 @@ function LoadDebugPanel({
         <Row label="kVA estimado" value={String(calculation?.estimatedKva ?? "-")} />
         <Row label="Tensao" value={String(entities?.voltage ?? "-")} />
         <Row label="Ligacao" value={String(entities?.connectionType ?? "-")} />
-        <Row label="Cidade/UF" value={[entities?.city, entities?.state].filter(Boolean).join("/") || "-"} />
+        <Row label="Cidade" value={String(entities?.city ?? "-")} />
+        <Row label="UF" value={String(entities?.state ?? "-")} />
+        <Row label="Concessionaria" value={String(table?.concessionaire ?? "-")} />
         <Row label="Lookup tabela" value={String(lookup?.status ?? "-")} />
+        <Row label="Tabela candidata" value={String(table?.tableNumber ?? "-")} />
+        <Row label="Linha escolhida" value={String(row?.rowIndex ?? "-")} />
+        <Row label="Motivo" value={String(lookup?.reason ?? "-")} />
       </div>
+      {equipments.length > 0 && (
+        <div className="mt-4 overflow-auto rounded-xl border border-emerald-100 bg-white">
+          <table className="min-w-full text-left text-xs text-slate-700">
+            <thead className="bg-emerald-100 text-emerald-950">
+              <tr>
+                <th className="px-3 py-2 font-semibold">Equipamento</th>
+                <th className="px-3 py-2 font-semibold">Quantidade</th>
+                <th className="px-3 py-2 font-semibold">Potencia adotada</th>
+                <th className="px-3 py-2 font-semibold">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {equipments.map((equipment, index) => {
+                const item = getRecord(equipment);
+                return (
+                  <tr key={`${String(item?.equipmentKey ?? "item")}-${index}`} className="border-t border-emerald-50">
+                    <td className="px-3 py-2">{String(item?.displayName ?? item?.rawName ?? "-")}</td>
+                    <td className="px-3 py-2">{String(item?.quantity ?? "-")}</td>
+                    <td className="px-3 py-2">{formatDebugWatts(item?.unitPowerW)}</td>
+                    <td className="px-3 py-2">{formatDebugWatts(item?.totalPowerW)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="mt-3 grid gap-3 md:grid-cols-2">
-        {equipments.length > 0 && <JsonBox title="Equipamentos extraidos" value={equipments} />}
         {calculation && <JsonBox title="Calculo de carga" value={calculation} />}
         {entities?.missingContext && entities.missingContext.length > 0 && (
           <JsonBox title="Dados faltantes" value={entities.missingContext} />
         )}
-        {lookup && <JsonBox title="Tabela / linha candidata" value={lookup} />}
+        {table && <JsonBox title="Tabela candidata" value={table} />}
+        {row && <JsonBox title="Linha escolhida" value={row} />}
+        {lookup && <JsonBox title="Motivo da escolha/rejeicao" value={lookup?.reason ?? lookup} />}
       </div>
     </div>
   );
+}
+
+function getRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function formatDebugWatts(value: unknown) {
+  return typeof value === "number" ? `${value.toLocaleString("pt-BR")} W` : "-";
 }
 
 function StructuredLookupPanel({ lookup }: { lookup: StructuredLookup }) {
