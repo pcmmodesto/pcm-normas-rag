@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useState } from "react";
 
 type Source = {
@@ -11,6 +13,12 @@ type Source = {
   concessionaire: string | null;
   stateCodes: string[];
   documentType: string;
+  evidence?: Array<{
+    signedUrl: string;
+    label: string;
+    storagePath: string;
+    kind: "image" | "pdf" | "file";
+  }>;
 };
 
 type QueryResult = {
@@ -161,6 +169,34 @@ export default function ChatPage() {
                     <p className="text-xs leading-relaxed text-[#94A3B8] line-clamp-4">
                       {source.excerpt}
                     </p>
+                    {source.evidence && source.evidence.length > 0 && (
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {source.evidence.map((item) => (
+                          <a
+                            className="overflow-hidden rounded-xl border border-slate-700 bg-slate-900/60"
+                            href={item.signedUrl}
+                            key={item.storagePath}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            {item.kind === "image" ? (
+                              <img
+                                alt={item.label}
+                                className="h-44 w-full object-contain p-2"
+                                src={item.signedUrl}
+                              />
+                            ) : (
+                              <div className="flex h-44 items-center justify-center p-4 text-center text-xs font-medium text-slate-400">
+                                Abrir {item.kind === "pdf" ? "PDF" : "arquivo"} de evidencia
+                              </div>
+                            )}
+                            <span className="block border-t border-slate-700 px-3 py-2 text-xs font-medium text-slate-300">
+                              {item.label}
+                            </span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

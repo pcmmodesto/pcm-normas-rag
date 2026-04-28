@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service-role";
 import {
   AUDIENCE_LABELS,
   buildExpandedSearchTerms,
@@ -240,7 +241,7 @@ export async function POST(request: Request) {
       }]
     : [];
 
-  const sources = [...structuredSource, ...passing.map((c) => ({
+  const sources = await attachEvidenceUrls([...structuredSource, ...passing.map((c) => ({
     documentTitle: c.document_title,
     versionLabel: c.version_label,
     pageNumber: c.page_number,
@@ -273,7 +274,7 @@ export async function POST(request: Request) {
     documentType: c.document_type,
     metadata: c.metadata,
     score: c.score,
-  }))];
+  }))]);
 
   return NextResponse.json({
     ok: true,
@@ -368,6 +369,134 @@ export async function POST(request: Request) {
         }
       : {}),
   });
+}
+
+type RagSource = {
+  documentTitle: string;
+  versionLabel: string;
+  pageNumber: number;
+  chunkIndex: number;
+  chunkType?: string | null;
+  pageType?: string | null;
+  technicalIntent?: string | null;
+  topic?: string | null;
+  sourceQuality?: string | null;
+  flags?: Record<string, boolean>;
+  sectionNumber: string | null;
+  sectionTitle: string | null;
+  tableNumber: string | null;
+  tableTitle: string | null;
+  excerpt: string;
+  concessionaire: string | null;
+  stateCodes: string[];
+  documentType: string;
+  metadata: Prisma.JsonValue | Record<string, unknown>;
+  score: number;
+  evidence?: Array<{
+    storagePath: string;
+    signedUrl: string;
+    label: string;
+    kind: "image" | "pdf" | "file";
+  }>;
+};
+
+async function attachEvidenceUrls<T extends RagSource>(sources: T[]): Promise<T[]> {
+  const paths = Array.from(
+    new Set(
+      sources.flatMap((source) => getSourceEvidencePaths(source.metadata)),
+    ),
+  ).slice(0, 6);
+
+  if (!paths.length) return sources;
+
+  let signedByPath: Map<string, string>;
+  try {
+    signedByPath = await createSignedEvidenceUrls(paths);
+  } catch {
+    return sources;
+  }
+
+  return sources.map((source) => {
+    const sourcePaths = getSourceEvidencePaths(source.metadata);
+    const evidence = sourcePaths
+      .map((storagePath, index) => {
+        const signedUrl = signedByPath.get(storagePath);
+        if (!signedUrl) return null;
+        return {
+          storagePath,
+          signedUrl,
+          label: index === 0 ? "Imagem original" : `Evidencia ${index + 1}`,
+          kind: getEvidenceKind(storagePath),
+        };
+      })
+      .filter((item): item is { storagePath: string; signedUrl: string; label: string; kind: "image" | "pdf" | "file" } => Boolean(item));
+
+    return evidence.length ? { ...source, evidence } : source;
+  });
+}
+
+async function createSignedEvidenceUrls(storagePaths: string[]) {
+  const supabase = createSupabaseServiceRoleClient();
+  const signedByPath = new Map<string, string>();
+
+  for (const storagePath of storagePaths) {
+    const parsed = parseStoragePath(storagePath);
+    if (!parsed) continue;
+
+    const { data, error } = await supabase.storage
+      .from(parsed.bucket)
+      .createSignedUrl(parsed.path, 60 * 20);
+    if (!error && data?.signedUrl) {
+      signedByPath.set(storagePath, data.signedUrl);
+    }
+  }
+
+  return signedByPath;
+}
+
+function getSourceEvidencePaths(metadata: Prisma.JsonValue | Record<string, unknown>) {
+  const meta = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>)
+    : {};
+
+  const paths = [
+    meta.imageStoragePath,
+    ...(Array.isArray(meta.evidencePaths) ? meta.evidencePaths : []),
+  ];
+
+  const structuredData = meta.structuredData;
+  if (structuredData && typeof structuredData === "object" && !Array.isArray(structuredData)) {
+    const nested = structuredData as Record<string, unknown>;
+    paths.push(nested.imageStoragePath);
+    if (Array.isArray(nested.evidencePaths)) paths.push(...nested.evidencePaths);
+  }
+
+  return paths
+    .filter((path): path is string => typeof path === "string" && path.trim().length > 0)
+    .map((path) => path.trim());
+}
+
+function parseStoragePath(storagePath: string) {
+  const clean = storagePath.replace(/^\/+/, "");
+  const [first, ...rest] = clean.split("/");
+  if (!first || rest.length === 0) {
+    return {
+      bucket: process.env.SUPABASE_DOCUMENTS_BUCKET ?? "technical-documents",
+      path: clean,
+    };
+  }
+
+  return {
+    bucket: first,
+    path: rest.join("/"),
+  };
+}
+
+function getEvidenceKind(storagePath: string): "image" | "pdf" | "file" {
+  const lower = storagePath.toLowerCase();
+  if (/\.(png|jpe?g|webp|gif)$/i.test(lower)) return "image";
+  if (/\.pdf$/i.test(lower)) return "pdf";
+  return "file";
 }
 
 async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {

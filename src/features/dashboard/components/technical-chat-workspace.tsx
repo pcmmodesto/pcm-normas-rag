@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useState } from "react";
 
 type Source = {
@@ -17,6 +19,12 @@ type Source = {
   stateCodes: string[];
   documentType: string;
   score?: number;
+  evidence?: Array<{
+    signedUrl: string;
+    label: string;
+    storagePath: string;
+    kind: "image" | "pdf" | "file";
+  }>;
 };
 
 type AnswerType = "DIRECT" | "PARTIAL" | "INSUFFICIENT" | "NEEDS_CONTEXT";
@@ -325,6 +333,34 @@ function SourceCard({ source }: { source: Source }) {
       <p className={`text-xs leading-relaxed text-slate-600 ${expanded ? "" : "line-clamp-3"}`}>
         {source.excerpt}
       </p>
+      {source.evidence && source.evidence.length > 0 && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {source.evidence.map((item) => (
+            <a
+              className="group overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
+              href={item.signedUrl}
+              key={item.storagePath}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {item.kind === "image" ? (
+                <img
+                  alt={item.label}
+                  className="h-44 w-full object-contain p-2 transition group-hover:scale-[1.02]"
+                  src={item.signedUrl}
+                />
+              ) : (
+                <div className="flex h-44 items-center justify-center p-4 text-center text-xs font-medium text-slate-500">
+                  Abrir {item.kind === "pdf" ? "PDF" : "arquivo"} de evidencia
+                </div>
+              )}
+              <span className="block border-t border-slate-200 px-3 py-2 text-xs font-medium text-slate-600">
+                {item.label}
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
       <button
         className="mt-1.5 text-xs text-[#19A7E8] hover:underline"
         onClick={() => setExpanded((v) => !v)}
