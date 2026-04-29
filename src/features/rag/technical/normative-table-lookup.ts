@@ -71,6 +71,7 @@ export type ServiceEntranceTableCandidate = {
   tableValidationStatus: string | null;
   assetValidationStatus: string | null;
   rowIndex: number;
+  stateMatchMode?: "EXACT" | "CONCESSIONAIRE_FALLBACK";
   blockReason?: string;
   acceptReason?: string;
 };
@@ -88,6 +89,7 @@ type ServiceEntranceLookupRow = {
   asset_validation_status: string | null;
   table_validation_status: string | null;
   image_storage_path: string | null;
+  state_match_mode: "EXACT" | "CONCESSIONAIRE_FALLBACK";
   row_id: string;
   row_index: number;
   supply_type: string | null;
@@ -118,6 +120,7 @@ export async function lookupServiceEntranceTable(
   const voltage = normalizeVoltage(input.voltage);
   const connectionType = input.connectionType ?? null;
   const state = input.state ?? null;
+  const utility = input.utility ?? inferUtilityFromState(state);
   const missingContext = buildMissingContext({ loadKw, voltage, connectionType, state });
 
   if (missingContext.length > 0) {
@@ -136,19 +139,44 @@ export async function lookupServiceEntranceTable(
       voltage: voltage!,
       connectionType: connectionType!,
       state: state!,
-      utility: input.utility ?? null,
+      utility,
       validationMode: "VALIDATED",
+      allowStateFallback: false,
     });
-    const blockedRows = await queryRows({
+    const fallbackRows = rows.length === 0
+      ? await queryRows({
+          loadKw: loadKw!,
+          voltage: voltage!,
+          connectionType: connectionType!,
+          state: state!,
+          utility,
+          validationMode: "VALIDATED",
+          allowStateFallback: true,
+        })
+      : [];
+    const acceptedRows = rows.length > 0 ? rows : fallbackRows;
+    const blockedExactRows = await queryRows({
       loadKw: loadKw!,
       voltage: voltage!,
       connectionType: connectionType!,
       state: state!,
-      utility: input.utility ?? null,
+      utility,
       validationMode: "BLOCKED",
+      allowStateFallback: false,
     });
+    const blockedRows = blockedExactRows.length > 0
+      ? blockedExactRows
+      : await queryRows({
+          loadKw: loadKw!,
+          voltage: voltage!,
+          connectionType: connectionType!,
+          state: state!,
+          utility,
+          validationMode: "BLOCKED",
+          allowStateFallback: true,
+        });
 
-    if (rows.length === 0) {
+    if (acceptedRows.length === 0) {
       return {
         status: "INSUFFICIENT_TABLE_DATA",
         reason: blockedRows.length > 0
@@ -160,10 +188,13 @@ export async function lookupServiceEntranceTable(
       };
     }
 
-    const selected = rows[0];
+    const selected = acceptedRows[0];
+    const fallbackNotice = selected.state_match_mode === "CONCESSIONAIRE_FALLBACK"
+      ? ` Nao havia tabela validada especifica para ${state}; foi usada tabela validada da concessionaria ${selected.concessionaire ?? utility ?? "informada"}.`
+      : "";
     return {
       status: "FOUND",
-      reason: `Linha encontrada para ${loadLabel}, ${connectionType}, ${voltage}, ${state}.`,
+      reason: `Linha encontrada para ${loadLabel}, ${connectionType}, ${voltage}, ${state}.${fallbackNotice}`,
       missingContext: [],
       table: {
         id: selected.table_id,
@@ -179,8 +210,8 @@ export async function lookupServiceEntranceTable(
         imageStoragePath: selected.image_storage_path,
       },
       row: mapRow(selected),
-      candidateRows: rows.map(mapRow),
-      validationDebug: buildValidationDebug(rows, blockedRows),
+      candidateRows: acceptedRows.map(mapRow),
+      validationDebug: buildValidationDebug(acceptedRows, blockedRows),
     };
   } catch (error) {
     return {
@@ -204,6 +235,7 @@ async function queryRows(params: {
   state: string;
   utility: string | null;
   validationMode: "VALIDATED" | "BLOCKED";
+  allowStateFallback: boolean;
 }) {
   const validationFilter = params.validationMode === "VALIDATED"
     ? Prisma.sql`nt.validation_status = 'VALIDATED'`
@@ -223,6 +255,13 @@ async function queryRows(params: {
       na.validation_status::text as asset_validation_status,
       nt.validation_status as table_validation_status,
       na.image_storage_path,
+      case
+        when (
+          nt.state ilike ${`%${params.state}%`}
+          or td.state_codes @> ARRAY[${params.state}]::text[]
+        ) then 'EXACT'
+        else 'CONCESSIONAIRE_FALLBACK'
+      end as state_match_mode,
       ntr.id as row_id,
       ntr.row_index,
       ntr.supply_type,
@@ -259,6 +298,16 @@ async function queryRows(params: {
       and (
         nt.state ilike ${`%${params.state}%`}
         or td.state_codes @> ARRAY[${params.state}]::text[]
+        or (
+          ${params.allowStateFallback} = true
+          and ${params.utility}::text is not null
+          and (
+            nt.concessionaire ilike ${`%${params.utility ?? ""}%`}
+            or td.concessionaire ilike ${`%${params.utility ?? ""}%`}
+            or nt.concessionaire ilike '%EQUATORIAL%'
+            or td.concessionaire ilike '%EQUATORIAL%'
+          )
+        )
       )
       and (
         ${params.utility}::text is null
@@ -266,6 +315,13 @@ async function queryRows(params: {
         or td.concessionaire ilike ${`%${params.utility ?? ""}%`}
       )
     order by
+      case
+        when (
+          nt.state ilike ${`%${params.state}%`}
+          or td.state_codes @> ARRAY[${params.state}]::text[]
+        ) then 0
+        else 1
+      end,
       case when nt.validation_status = 'VALIDATED' then 0 else 1 end,
       ntr.row_index asc
     limit 5
@@ -278,7 +334,14 @@ function buildValidationDebug(
 ): NonNullable<ServiceEntranceLookupResult["validationDebug"]> {
   return {
     finalUsedValidatedTable: acceptedRows.length > 0,
-    acceptedTables: acceptedRows.map((row) => mapCandidate(row, "Tabela validada elegivel para resposta tecnica.")),
+    acceptedTables: acceptedRows.map((row) =>
+      mapCandidate(
+        row,
+        row.state_match_mode === "CONCESSIONAIRE_FALLBACK"
+          ? "Tabela validada elegivel por fallback de concessionaria."
+          : "Tabela validada elegivel para resposta tecnica.",
+      ),
+    ),
     blockedTables: blockedRows.map((row) => mapCandidate(row, undefined, blockReasonForStatus(row.table_validation_status))),
   };
 }
@@ -301,6 +364,7 @@ function mapCandidate(
     tableValidationStatus: row.table_validation_status,
     assetValidationStatus: row.asset_validation_status,
     rowIndex: row.row_index,
+    stateMatchMode: row.state_match_mode,
     acceptReason,
     blockReason,
   };
@@ -361,4 +425,10 @@ function normalizeVoltage(voltage: string | null | undefined) {
   if (normalized === "220v") return "220V";
   if (normalized === "380v") return "380V";
   return voltage;
+}
+
+function inferUtilityFromState(state: string | null) {
+  if (state === "PA") return "Equatorial";
+  if (state === "MA") return "Equatorial";
+  return null;
 }

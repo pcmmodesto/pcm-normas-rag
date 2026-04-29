@@ -12,6 +12,7 @@ export type ExtractedLoadEquipment = {
   unitPowerW: number;
   totalPowerW: number;
   capacityBtu?: number;
+  motorCv?: number;
   assumption: boolean;
   notes?: string;
 };
@@ -63,7 +64,7 @@ export function extractLoadEntities(question: string): LoadEntities {
   const normalized = normalizeTechnicalText(question);
   const equipments = extractEquipments(question);
   const location = extractLocation(normalized);
-  const voltage = extractVoltage(normalized);
+  const voltage = extractVoltage(normalized) ?? inferDefaultVoltage(location.state);
   const connectionType = extractConnectionType(normalized);
   const informedLoad = extractInformedLoad(normalized);
   const hasDimensioningRequest =
@@ -105,6 +106,7 @@ function extractEquipments(question: string): ExtractedLoadEquipment[] {
     if (matches.length === 0) continue;
 
     const capacityBtu = matches.map((match) => extractNearbyBtu(normalized, match.index)).find(Boolean);
+    const motorCv = matches.map((match) => extractNearbyCv(normalized, match.index)).find(Boolean);
     const key = capacityBtu === 12000 && profile.key.startsWith("ar_condicionado")
       ? "ar_condicionado_12000_btu"
       : profile.key;
@@ -113,17 +115,23 @@ function extractEquipments(question: string): ExtractedLoadEquipment[] {
         ? profile
         : EQUIPMENT_LOAD_CATALOG.find((item) => item.key === key) ?? profile;
     const quantity = matches.reduce((sum, match) => sum + (extractQuantityBefore(normalized, match.index) ?? 1), 0);
+    const unitPowerW = motorCv && /bomba|motor/.test(key)
+      ? Math.round(motorCv * 736)
+      : effectiveProfile.defaultPowerW;
 
     found.set(key, {
       equipmentKey: key,
       rawName: Array.from(new Set(matches.map((match) => match.rawName))).join(", "),
       displayName: effectiveProfile.displayName,
       quantity,
-      unitPowerW: effectiveProfile.defaultPowerW,
-      totalPowerW: quantity * effectiveProfile.defaultPowerW,
+      unitPowerW,
+      totalPowerW: quantity * unitPowerW,
       capacityBtu,
+      motorCv,
       assumption: true,
-      notes: effectiveProfile.notes,
+      notes: motorCv && /bomba|motor/.test(key)
+        ? `Potencia estimada por ${motorCv} cv: 1 cv = 736 W. Validar potencia eletrica nominal de placa.`
+        : effectiveProfile.notes,
     });
   }
 
@@ -171,6 +179,13 @@ function extractNearbyBtu(normalizedQuestion: string, index: number) {
   return Number(match[1].replace(/[.\s]/g, ""));
 }
 
+function extractNearbyCv(normalizedQuestion: string, index: number) {
+  const around = normalizedQuestion.slice(Math.max(0, index - 20), index + 80);
+  const match = /(\d+(?:[,.]\d+)?)\s*(?:cv|hp)\b/.exec(around);
+  if (!match) return undefined;
+  return Number(match[1].replace(",", "."));
+}
+
 function extractLocation(normalizedQuestion: string) {
   for (const item of CITY_STATE_PATTERNS) {
     if (item.pattern.test(normalizedQuestion)) {
@@ -190,6 +205,11 @@ function extractVoltage(normalizedQuestion: string) {
   const simple = /\b(127|220|380)\s*v\b/.exec(normalizedQuestion);
   if (simple) return `${simple[1]}V`;
 
+  return undefined;
+}
+
+function inferDefaultVoltage(state: string | undefined) {
+  if (state === "MA") return "220/380";
   return undefined;
 }
 

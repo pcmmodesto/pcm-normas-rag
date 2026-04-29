@@ -23,9 +23,16 @@ export const EQUIPMENT_LOAD_CATALOG: EquipmentLoadProfile[] = [
   },
   {
     key: "microondas",
-    aliases: ["microondas", "micro-ondas", "forno microondas", "forno micro-ondas"],
+    aliases: ["microondas", "micro ondas", "micro-ondas", "forno microondas", "forno micro ondas", "forno micro-ondas"],
     displayName: "Micro-ondas",
     defaultPowerW: 1500,
+  },
+  {
+    key: "bomba_motor_cv",
+    aliases: ["bomba", "bombas", "motor", "motores", "motobomba", "motobombas"],
+    displayName: "Bomba / motor",
+    defaultPowerW: 736,
+    notes: "Potencia estimada por CV informado: 1 cv = 736 W. Validar potencia eletrica nominal de placa.",
   },
   {
     key: "ar_condicionado_12000_btu",
@@ -70,6 +77,12 @@ export const EQUIPMENT_LOAD_CATALOG: EquipmentLoadProfile[] = [
     key: "iluminacao",
     aliases: ["iluminacao", "ponto de luz", "pontos de luz", "lampada", "lampadas"],
     displayName: "Iluminacao / ponto de luz",
+    defaultPowerW: 100,
+  },
+  {
+    key: "tomada_uso_geral",
+    aliases: ["tomada", "tomadas", "ponto de tomada", "pontos de tomada"],
+    displayName: "Tomada de uso geral",
     defaultPowerW: 100,
   },
 ];

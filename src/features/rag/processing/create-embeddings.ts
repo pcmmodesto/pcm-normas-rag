@@ -1,4 +1,5 @@
 import type { DocumentChunkDraft } from "./chunk-document";
+import { generateEmbedding } from "@/features/rag/embedding/openai-embeddings";
 
 export type EmbeddingDraft = {
   chunk: DocumentChunkDraft;
@@ -8,6 +9,12 @@ export type EmbeddingDraft = {
 export async function createEmbeddings(
   chunks: DocumentChunkDraft[],
 ): Promise<EmbeddingDraft[]> {
-  void chunks;
-  throw new Error("Embeddings reais ainda nao conectados.");
+  const results: EmbeddingDraft[] = [];
+  for (const chunk of chunks) {
+    results.push({
+      chunk,
+      embedding: await generateEmbedding(chunk.text),
+    });
+  }
+  return results;
 }

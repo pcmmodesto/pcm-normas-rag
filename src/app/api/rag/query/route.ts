@@ -24,6 +24,7 @@ import { classifyQuestion } from "@/features/rag/lib/classify-question";
 import { extractLoadEntities } from "@/features/rag/technical/load-entity-extractor";
 import { calculateInstalledLoad } from "@/features/rag/technical/load-calculator";
 import { lookupServiceEntranceTable } from "@/features/rag/technical/normative-table-lookup";
+import { countEmbeddedChunks, searchChunksByVector, type VectorSearchDebug } from "@/features/rag/retrieval/vector-search";
 
 export const runtime = "nodejs";
 
@@ -92,6 +93,10 @@ type ChunkRow = {
   state_codes: string[] | null;
   document_type: string;
   metadata: Prisma.JsonValue;
+  embedding_model?: string | null;
+  vector_score?: number | null;
+  vector_distance?: number | null;
+  textual_retrieval_score?: number | null;
 };
 
 type ScoredChunk = ChunkRow & {
@@ -99,10 +104,14 @@ type ScoredChunk = ChunkRow & {
   textualScore: number;
   technicalScore: number;
   penaltyScore: number;
+  vectorScore: number;
+  textualRetrievalScore: number;
+  hybridScore: number;
   reasons: string[];
   rejected: boolean;
   rejectionReason?: string;
   sourceRole?: "MAIN" | "AUXILIARY" | "REJECTED";
+  retrievalSource?: "VECTOR" | "TEXT" | "HYBRID";
 };
 
 function detectTechnicalResponseMode(loadEntities: ReturnType<typeof extractLoadEntities>): TechnicalResponseMode {
@@ -193,12 +202,45 @@ export async function POST(request: Request) {
     new Set([...expandedTerms.map((t) => t.term), ...technicalEntities.terms.map((t) => t.toLowerCase())]),
   ).slice(0, 36);
 
-  const candidates = await fetchCandidates(searchTerms);
+  const shouldUseVector =
+    !(responseMode === "ENGINEERING_DIMENSIONING" && serviceEntranceLookup?.status === "FOUND") &&
+    !(responseMode === "STANDARD_RAG" && structuredLookup.found);
+  const embeddedChunkCountWhenSkipped = shouldUseVector ? 0 : await countEmbeddedChunks().catch(() => 0);
+  const vectorSearch = shouldUseVector
+    ? await searchChunksByVector({
+        question,
+        filters: {
+          uf: technicalEntities.state ?? loadEntities.state,
+          concessionaria: technicalEntities.probableConcessionaire,
+          technicalIntent: null,
+        },
+        limit: 50,
+      })
+    : {
+        results: [],
+        debug: {
+          used: false,
+          fallbackTextual: true,
+          embeddingModel: process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small",
+          embeddedChunkCount: embeddedChunkCountWhenSkipped,
+        } satisfies VectorSearchDebug,
+      };
+  const textualCandidates = await fetchCandidates(searchTerms);
+  const candidates = mergeHybridCandidates(textualCandidates, vectorSearch.results);
 
   const scored: ScoredChunk[] = candidates.map((chunk) => {
     const detail = isLeigo
       ? scoreChunkForLeigo(chunk.chunk_text, keywords, question)
       : scoreChunkDetailed(chunk.chunk_text, intent, keywords, question, secondaryIntents);
+
+    const vectorScore = Math.max(0, Math.round((chunk.vector_score ?? 0) * 100));
+    const textualRetrievalScore = chunk.textual_retrieval_score ?? (chunk.vector_score ? 0 : 100);
+    if (!detail.rejected && vectorScore > 0) {
+      const vectorBonus = Math.min(80, Math.max(10, Math.round(vectorScore * 0.65)));
+      detail.score += vectorBonus;
+      detail.technicalScore += vectorBonus;
+      detail.reasons.push(`+${vectorBonus}: similaridade vetorial ${vectorScore}`);
+    }
 
     // Bonus for structured table chunks in technical queries
     if (!isLeigo && !detail.rejected && TABLE_CHUNK_TYPES.has(chunk.chunk_type)) {
@@ -209,7 +251,18 @@ export async function POST(request: Request) {
 
     applyStructuredChunkScore(detail, chunk, isLeigo, intent, secondaryIntents, question);
 
-    return { ...chunk, ...detail };
+    return {
+      ...chunk,
+      ...detail,
+      vectorScore,
+      textualRetrievalScore,
+      hybridScore: detail.score,
+      retrievalSource: chunk.vector_score && chunk.textual_retrieval_score
+        ? "HYBRID"
+        : chunk.vector_score
+          ? "VECTOR"
+          : "TEXT",
+    };
   });
 
   const minScore = isLeigo ? MIN_SCORE_LEIGO : MIN_SCORE_BY_INTENT[intent];
@@ -416,6 +469,11 @@ export async function POST(request: Request) {
             keywords,
             technicalEntities,
             structuredLookup,
+            vectorSearch: {
+              ...vectorSearch.debug,
+              fallbackTextual: vectorSearch.debug.fallbackTextual || vectorSearch.results.length === 0,
+              skippedByStructuredSource: !shouldUseVector,
+            },
             expandedTerms,
             searchTerms,
             minScore,
@@ -457,6 +515,12 @@ export async function POST(request: Request) {
               textualScore: c.textualScore,
               technicalScore: c.technicalScore,
               penaltyScore: c.penaltyScore,
+              vectorScore: c.vectorScore,
+              textualRetrievalScore: c.textualRetrievalScore,
+              hybridScore: c.hybridScore,
+              embeddingModel: c.embedding_model,
+              vectorDistance: c.vector_distance,
+              retrievalSource: c.retrievalSource,
               finalScore: c.score,
               reasons: c.reasons,
               rejected: c.rejected || (requiresStrongSource && !isStrongTechnicalSource(c) && c.score >= minScore),
@@ -663,6 +727,43 @@ async function fetchCandidates(searchTerms: string[]): Promise<ChunkRow[]> {
   } catch {
     return [];
   }
+}
+
+function mergeHybridCandidates(textualCandidates: ChunkRow[], vectorCandidates: ChunkRow[]): ChunkRow[] {
+  const byId = new Map<string, ChunkRow>();
+
+  for (const chunk of vectorCandidates) {
+    byId.set(chunk.chunk_id, {
+      ...chunk,
+      textual_retrieval_score: 0,
+    });
+  }
+
+  for (const chunk of textualCandidates) {
+    const existing = byId.get(chunk.chunk_id);
+    if (existing) {
+      byId.set(chunk.chunk_id, {
+        ...existing,
+        textual_retrieval_score: 100,
+      });
+    } else {
+      byId.set(chunk.chunk_id, {
+        ...chunk,
+        vector_score: null,
+        vector_distance: null,
+        textual_retrieval_score: 100,
+      });
+    }
+  }
+
+  return Array.from(byId.values())
+    .sort((a, b) => {
+      const aVector = a.vector_score ?? 0;
+      const bVector = b.vector_score ?? 0;
+      if (bVector !== aVector) return bVector - aVector;
+      return (b.textual_retrieval_score ?? 0) - (a.textual_retrieval_score ?? 0);
+    })
+    .slice(0, 100);
 }
 
 function applyStructuredChunkScore(

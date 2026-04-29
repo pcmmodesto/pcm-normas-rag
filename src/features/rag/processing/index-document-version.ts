@@ -6,6 +6,9 @@ import { extractPdfText } from "./extract-pdf-text";
 import { classifyStructuredChunk } from "./classify-chunk";
 import { saveGenericNormativeTables } from "./normative-generic-structure";
 import { saveKnownNormativeFiguresAndNotes, saveKnownNormativeTables } from "./normative-table-2";
+import { buildChunkEmbeddingInput } from "@/features/rag/embedding/chunk-embedding-input";
+import { generateEmbedding, getEmbeddingModel } from "@/features/rag/embedding/openai-embeddings";
+import { ensureVectorSearchSchema } from "@/features/rag/retrieval/vector-search";
 
 type VersionRow = {
   id: string;
@@ -72,7 +75,12 @@ export async function indexDocumentVersion(documentVersionId: string) {
   const chunks = await smartChunkDocument(pages, docContext);
 
   await savePages(documentVersionId, pages);
-  await saveChunks(documentVersionId, chunks);
+  await prisma.$executeRaw`
+    update document_versions
+    set processing_status = ${"EMBEDDING"}::processing_status, updated_at = now()
+    where id = ${documentVersionId}
+  `;
+  await saveChunks(documentVersionId, chunks, docContext);
 
   const normCtx = {
     documentVersionId,
@@ -99,7 +107,14 @@ export async function indexDocumentVersion(documentVersionId: string) {
     where id = ${documentVersionId}
   `;
 
-  return { pages: pages.length, chunks: chunks.length };
+  const embeddedRows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    select count(*)::bigint as count
+    from document_chunks
+    where document_version_id = ${documentVersionId}
+      and embedding is not null
+  `;
+
+  return { pages: pages.length, chunks: chunks.length, embeddings: Number(embeddedRows[0]?.count ?? 0) };
 }
 
 async function ensureStructuredChunkSchema() {
@@ -263,8 +278,16 @@ async function savePages(
 async function saveChunks(
   documentVersionId: string,
   chunks: Awaited<ReturnType<typeof smartChunkDocument>>,
+  docContext: {
+    documentTitle: string;
+    concessionaria: string | null;
+    stateCodes: string[] | null;
+    versionLabel: string;
+  },
 ): Promise<void> {
   if (chunks.length === 0) return;
+
+  await ensureVectorSearchSchema();
 
   const pageRows = await prisma.$queryRaw<Array<{ page_number: number; id: string }>>`
     select page_number, id from document_pages
@@ -272,6 +295,14 @@ async function saveChunks(
   `;
 
   const pageIdMap = new Map(pageRows.map((r) => [r.page_number, r.id]));
+
+  type ChunkInsertRow = {
+    id: ReturnType<typeof randomUUID>;
+    chunk: (typeof chunks)[number];
+    structured: ReturnType<typeof classifyStructuredChunk>;
+    metadata: Record<string, unknown>;
+    sql: Prisma.Sql;
+  };
 
   const rows = chunks
     .map((chunk) => {
@@ -285,9 +316,10 @@ async function saveChunks(
       if (chunk.tableTitle) metadata.tableTitle = chunk.tableTitle;
       Object.assign(metadata, chunk.metadata ?? {});
       const s = classifyStructuredChunk(chunk);
+      const id = randomUUID();
 
-      return Prisma.sql`(
-        ${randomUUID()},
+      const sql = Prisma.sql`(
+        ${id},
         ${documentVersionId},
         ${pageId},
         ${chunk.pageNumber},
@@ -321,8 +353,9 @@ async function saveChunks(
         now(),
         now()
       )`;
+      return { id, chunk, structured: s, metadata, sql };
     })
-    .filter((r): r is Prisma.Sql => r !== null);
+    .filter((r): r is ChunkInsertRow => r !== null);
 
   if (rows.length === 0) return;
 
@@ -341,7 +374,7 @@ async function saveChunks(
         source_quality, is_searchable, is_low_value, search_text,
         created_at, updated_at
       )
-      values ${Prisma.join(batch)}
+      values ${Prisma.join(batch.map((row) => row.sql))}
       on conflict (document_version_id, chunk_index) do update
         set
           text = excluded.text,
@@ -370,7 +403,81 @@ async function saveChunks(
           is_searchable = excluded.is_searchable,
           is_low_value = excluded.is_low_value,
           search_text = excluded.search_text,
+          embedding = null,
+          embedding_model = null,
+          embedded_at = null,
           updated_at = now()
     `;
   }
+
+  const savedRows = await prisma.$queryRaw<Array<{
+    id: string;
+    chunk_index: number;
+  }>>`
+    select id, chunk_index
+    from document_chunks
+    where document_version_id = ${documentVersionId}
+  `;
+  const idByChunkIndex = new Map(savedRows.map((row) => [row.chunk_index, row.id]));
+  const embeddingModel = getEmbeddingModel();
+
+  for (const row of rows) {
+    const chunkId = idByChunkIndex.get(row.chunk.chunkIndex);
+    if (!chunkId || row.chunk.isLowValue || !row.chunk.isSearchable) continue;
+
+    try {
+      const embeddingInput = buildChunkEmbeddingInput({
+        documentTitle: docContext.documentTitle,
+        concessionaire: docContext.concessionaria,
+        stateCodes: docContext.stateCodes,
+        versionLabel: docContext.versionLabel,
+        pageNumber: row.chunk.pageNumber,
+        chunkType: row.chunk.chunkType,
+        topic: row.structured.topic,
+        sectionNumber: row.chunk.sectionNumber,
+        sectionTitle: row.chunk.sectionTitle,
+        technicalIntent: row.structured.technicalIntent,
+        technicalTerms: row.structured.technicalTerms,
+        text: row.chunk.text,
+        searchText: row.chunk.searchText,
+      });
+      const embedding = await generateEmbedding(embeddingInput);
+      const vectorLiteral = toPgVectorLiteral(embedding);
+
+      await prisma.$executeRaw`
+        update document_chunks
+        set
+          embedding = ${vectorLiteral}::vector,
+          embedding_model = ${embeddingModel},
+          embedded_at = now(),
+          metadata = metadata - 'embeddingError'
+        where id = ${chunkId}
+      `;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha desconhecida ao gerar embedding.";
+      console.warn("[rag] embedding skipped", {
+        documentVersionId,
+        chunkIndex: row.chunk.chunkIndex,
+        message,
+      });
+      await prisma.$executeRaw`
+        update document_chunks
+        set
+          embedding = null,
+          embedding_model = null,
+          embedded_at = null,
+          metadata = jsonb_set(metadata, '{embeddingError}', to_jsonb(${message}::text), true)
+        where id = ${chunkId}
+      `.catch(() => undefined);
+    }
+  }
+}
+
+function toPgVectorLiteral(values: number[]) {
+  return `[${values.map((value) => formatVectorNumber(value)).join(",")}]`;
+}
+
+function formatVectorNumber(value: number) {
+  if (!Number.isFinite(value)) throw new Error("Valor invalido no vetor.");
+  return Number(value.toFixed(8)).toString();
 }

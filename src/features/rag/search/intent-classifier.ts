@@ -407,7 +407,7 @@ export function extractTechnicalEntities(question: string): TechnicalEntities {
     city,
     state,
     probableConcessionaire,
-    voltage: normalizeExtractedVoltage(voltageMatch?.[1]),
+    voltage: normalizeExtractedVoltage(voltageMatch?.[1]) ?? inferDefaultVoltage(state),
     installedLoadKva: kvaMatch ? Number(kvaMatch[1].replace(",", ".")) : undefined,
     demand: /demanda/.test(n) ? "demanda" : undefined,
     hasKva: /\bkva\b/.test(n),
@@ -452,6 +452,11 @@ function normalizeExtractedVoltage(voltage: string | undefined) {
   const compact = voltage.replace(/\s/g, "");
   if (compact === "220/308") return "220/380";
   return compact;
+}
+
+function inferDefaultVoltage(state: string | undefined) {
+  if (state === "MA") return "220/380";
+  return undefined;
 }
 
 export function shouldUseServiceExpansion(question: string): boolean {

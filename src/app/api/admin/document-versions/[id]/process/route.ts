@@ -57,9 +57,10 @@ export async function POST(
 
     return NextResponse.json({
       ok: true,
-      message: "Documento processado com chunks estruturados.",
+      message: "Documento processado com chunks estruturados e embeddings.",
       pages: result.pages,
       chunks: result.chunks,
+      embeddings: result.embeddings,
     });
   } catch (error) {
     await markVersionAsFailed(id, error);

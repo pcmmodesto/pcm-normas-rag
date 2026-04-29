@@ -1,15 +1,18 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient({
-  log: ["error", "warn"],
-});
+import { PrismaPg } from "@prisma/adapter-pg";
 
 async function main() {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is not defined. Create a local .env first.");
   }
 
+  const prisma = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+    log: ["error", "warn"],
+  });
+
+  try {
   const [databaseCheck] = await prisma.$queryRaw`
     select
       current_database() as database_name,
@@ -31,6 +34,9 @@ async function main() {
     schema: databaseCheck.schema_name,
     vectorEnabled: Boolean(vectorCheck.vector_enabled),
   });
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
 main()
@@ -38,7 +44,4 @@ main()
     console.error("Prisma connection check failed");
     console.error(error);
     process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });

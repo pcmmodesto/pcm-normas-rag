@@ -23,6 +23,12 @@ type Candidate = {
   textualScore?: number;
   technicalScore?: number;
   penaltyScore?: number;
+  vectorScore?: number;
+  textualRetrievalScore?: number;
+  hybridScore?: number;
+  embeddingModel?: string | null;
+  vectorDistance?: number | null;
+  retrievalSource?: "VECTOR" | "TEXT" | "HYBRID";
   finalScore?: number;
   reasons: string[];
   rejected: boolean;
@@ -56,6 +62,14 @@ type DebugInfo = {
   keywords: string[];
   technicalEntities?: Record<string, unknown>;
   structuredLookup?: StructuredLookup;
+  vectorSearch?: {
+    used: boolean;
+    fallbackTextual: boolean;
+    embeddingModel: string;
+    embeddedChunkCount: number;
+    error?: string;
+    skippedByStructuredSource?: boolean;
+  };
   expandedTerms?: ExpandedTerm[];
   searchTerms: string[];
   minScore: number;
@@ -213,6 +227,10 @@ export function RagDebugClient() {
               <Row label="Modo" value={debug.classificationMode ?? "-"} />
               <Row label="Score minimo" value={String(debug.minScore)} />
               <Row label="Candidatos / Aprovados" value={`${debug.candidateCount} / ${passing.length}`} />
+              <Row label="Busca vetorial" value={debug.vectorSearch?.used ? "usada" : "nao usada"} />
+              <Row label="Modelo embedding" value={debug.vectorSearch?.embeddingModel ?? "-"} />
+              <Row label="Chunks com embedding" value={String(debug.vectorSearch?.embeddedChunkCount ?? 0)} />
+              <Row label="Fallback textual" value={debug.vectorSearch?.fallbackTextual ? "sim" : "nao"} />
               <Row
                 label="Fonte tecnica"
                 value={debug.isTechnicalSourceSufficient ? "suficiente" : "insuficiente"}
@@ -222,6 +240,11 @@ export function RagDebugClient() {
                 value={debug.hasDimensioningTableOrCriteria ? "encontrado" : "nao encontrado"}
               />
             </div>
+            {debug.vectorSearch?.error && (
+              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Vetorial indisponivel: {debug.vectorSearch.error}
+              </p>
+            )}
           </div>
 
           {(debug.loadEntities || debug.loadCalculation || debug.serviceEntranceLookup) && (
@@ -571,6 +594,11 @@ function ChunkCard({
             {chunk.sourceRole}
           </span>
         )}
+        {chunk.retrievalSource && (
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+            {chunk.retrievalSource}
+          </span>
+        )}
         {chunk.sectionNumber && (
           <span className="rounded-full bg-purple-50 px-2 py-0.5 text-xs text-purple-700">
             Secao {chunk.sectionNumber}
@@ -594,6 +622,20 @@ function ChunkCard({
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
           PEN {chunk.penaltyScore ?? 0}
         </span>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+          VEC {chunk.vectorScore ?? 0}
+        </span>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+          TXT-R {chunk.textualRetrievalScore ?? 0}
+        </span>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+          HIB {chunk.hybridScore ?? chunk.score}
+        </span>
+        {typeof chunk.vectorDistance === "number" && (
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+            Dist {chunk.vectorDistance.toFixed(4)}
+          </span>
+        )}
         {chunk.rejected && chunk.rejectionReason && (
           <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">
             {chunk.rejectionReason}

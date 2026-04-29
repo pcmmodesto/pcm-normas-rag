@@ -13,6 +13,7 @@ type ProcessResult = {
   message?: string;
   pages?: number;
   chunks?: number;
+  embeddings?: number;
 };
 
 export function ProcessDocumentButton({ versionId, disabled = false }: ProcessDocumentButtonProps) {
@@ -34,7 +35,7 @@ export function ProcessDocumentButton({ versionId, disabled = false }: ProcessDo
       if (response.ok && data.ok) {
         const extra =
           typeof data.pages === "number" && typeof data.chunks === "number"
-            ? ` (${data.pages} pags, ${data.chunks} chunks)`
+            ? ` (${data.pages} pags, ${data.chunks} chunks, ${data.embeddings ?? 0} embeddings)`
             : "";
         setFeedback({ type: "ok", message: `Processado com sucesso${extra}.` });
         router.refresh();

@@ -51,7 +51,7 @@ export default async function AdminProcessingPage() {
         <PageHeader
           eyebrow="Processamento"
           title="Pipeline de documentos"
-          description="Status real das versoes cadastradas. Extracao de texto e chunking normativo ja rodam no servidor; embeddings entram em etapa futura."
+          description="Status real das versoes cadastradas. Use Processar documento para extrair texto, recriar chunks estruturados e regenerar embeddings dos chunks existentes."
         />
         <AdminWarning
           title="A fila de processamento encontrou um problema"
@@ -103,7 +103,7 @@ export default async function AdminProcessingPage() {
                       <td className="break-words px-3 py-4 leading-6">
                         {version.processingError
                           ? <ProcessingErrorMessage error={version.processingError} />
-                          : "Aguardando processamento com extracao de texto e chunks estruturados."}
+                          : "Aguardando processamento com extracao de texto, chunks estruturados e embeddings vetoriais."}
                       </td>
                       <td className="px-3 py-4">
                         <div className="flex flex-col gap-2 xl:flex-row">
