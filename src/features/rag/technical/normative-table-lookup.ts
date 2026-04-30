@@ -11,6 +11,13 @@ export type ServiceEntranceLookupInput = {
   utility?: string | null;
 };
 
+export type TableCompatibilityStatus =
+  | "COMPATIBLE_BY_CORPORATE_GROUP"
+  | "COMPATIBLE_BY_STATE"
+  | "BLOCKED_BY_VOLTAGE"
+  | "NEEDS_VOLTAGE_CONTEXT"
+  | "NO_VALIDATED_TABLE_FOUND";
+
 export type ServiceEntranceLookupResult = {
   status: "FOUND" | "MISSING_CONTEXT" | "INSUFFICIENT_TABLE_DATA";
   reason: string;
@@ -25,6 +32,11 @@ export type ServiceEntranceLookupResult = {
     concessionaire: string | null;
     state: string | null;
     voltage: string | null;
+    scope: string;
+    utilityGroup: string | null;
+    applicableUfs: string[];
+    serviceType: string | null;
+    compatibilityStatus: TableCompatibilityStatus;
     validationStatus: string | null;
     imageStoragePath: string | null;
   };
@@ -53,6 +65,11 @@ export type ServiceEntranceLookupResult = {
   candidateRows: Array<NonNullable<ServiceEntranceLookupResult["row"]>>;
   validationDebug?: {
     finalUsedValidatedTable: boolean;
+    compatibilityStatus: TableCompatibilityStatus;
+    city?: string | null;
+    state?: string | null;
+    probableUtility?: string | null;
+    questionVoltage?: string | null;
     acceptedTables: ServiceEntranceTableCandidate[];
     blockedTables: ServiceEntranceTableCandidate[];
   };
@@ -68,10 +85,15 @@ export type ServiceEntranceTableCandidate = {
   concessionaire: string | null;
   state: string | null;
   voltage: string | null;
+  scope: string;
+  utilityGroup: string | null;
+  applicableUfs: string[];
+  serviceType: string | null;
+  questionVoltage?: string | null;
+  compatibilityStatus: TableCompatibilityStatus;
   tableValidationStatus: string | null;
   assetValidationStatus: string | null;
   rowIndex: number;
-  stateMatchMode?: "EXACT" | "CONCESSIONAIRE_FALLBACK";
   blockReason?: string;
   acceptReason?: string;
 };
@@ -86,10 +108,14 @@ type ServiceEntranceLookupRow = {
   concessionaire: string | null;
   state: string | null;
   table_voltage: string | null;
+  scope: string;
+  utility_group: string | null;
+  applicable_ufs: string[] | null;
+  service_type: string | null;
+  compatibility_status: TableCompatibilityStatus;
   asset_validation_status: string | null;
   table_validation_status: string | null;
   image_storage_path: string | null;
-  state_match_mode: "EXACT" | "CONCESSIONAIRE_FALLBACK";
   row_id: string;
   row_index: number;
   supply_type: string | null;
@@ -124,11 +150,25 @@ export async function lookupServiceEntranceTable(
   const missingContext = buildMissingContext({ loadKw, voltage, connectionType, state });
 
   if (missingContext.length > 0) {
+    const compatibilityStatus: TableCompatibilityStatus = !voltage
+      ? "NEEDS_VOLTAGE_CONTEXT"
+      : "NO_VALIDATED_TABLE_FOUND";
     return {
       status: "MISSING_CONTEXT",
-      reason: "Dados minimos insuficientes para selecionar linha normativa estruturada.",
+      reason: !voltage
+        ? "Informe a tensao de fornecimento para selecionar a tabela normativa correta."
+        : "Dados minimos insuficientes para selecionar linha normativa estruturada.",
       missingContext,
       candidateRows: [],
+      validationDebug: {
+        finalUsedValidatedTable: false,
+        compatibilityStatus,
+        state,
+        probableUtility: utility,
+        questionVoltage: voltage,
+        acceptedTables: [],
+        blockedTables: [],
+      },
     };
   }
 
@@ -141,9 +181,9 @@ export async function lookupServiceEntranceTable(
       state: state!,
       utility,
       validationMode: "VALIDATED",
-      allowStateFallback: false,
+      ignoreVoltage: false,
     });
-    const fallbackRows = rows.length === 0
+    const voltageBlockedRows = rows.length === 0
       ? await queryRows({
           loadKw: loadKw!,
           voltage: voltage!,
@@ -151,50 +191,47 @@ export async function lookupServiceEntranceTable(
           state: state!,
           utility,
           validationMode: "VALIDATED",
-          allowStateFallback: true,
+          ignoreVoltage: true,
         })
       : [];
-    const acceptedRows = rows.length > 0 ? rows : fallbackRows;
-    const blockedExactRows = await queryRows({
+    const blockedRows = await queryRows({
       loadKw: loadKw!,
       voltage: voltage!,
       connectionType: connectionType!,
       state: state!,
       utility,
       validationMode: "BLOCKED",
-      allowStateFallback: false,
+      ignoreVoltage: false,
     });
-    const blockedRows = blockedExactRows.length > 0
-      ? blockedExactRows
-      : await queryRows({
-          loadKw: loadKw!,
-          voltage: voltage!,
-          connectionType: connectionType!,
-          state: state!,
-          utility,
-          validationMode: "BLOCKED",
-          allowStateFallback: true,
-        });
 
-    if (acceptedRows.length === 0) {
+    if (rows.length === 0) {
+      const compatibilityStatus: TableCompatibilityStatus =
+        voltageBlockedRows.length > 0 ? "BLOCKED_BY_VOLTAGE" : "NO_VALIDATED_TABLE_FOUND";
       return {
         status: "INSUFFICIENT_TABLE_DATA",
-        reason: blockedRows.length > 0
-          ? "Tabela candidata encontrada, mas ainda nao validada."
-          : "Tabela estruturada validada nao possui linha confiavel para a carga/contexto informado.",
+        reason: compatibilityStatus === "BLOCKED_BY_VOLTAGE"
+          ? "Existe tabela validada corporativa/compatível, mas a tensao informada nao corresponde a tensao da tabela."
+          : blockedRows.length > 0
+            ? "Tabela candidata encontrada, mas ainda nao validada."
+            : "Nenhuma tabela validada compativel foi encontrada para carga, tensao e tipo de ligacao informados.",
         missingContext: [],
         candidateRows: [],
-        validationDebug: buildValidationDebug([], blockedRows),
+        validationDebug: buildValidationDebug([], [...voltageBlockedRows, ...blockedRows], {
+          compatibilityStatus,
+          state,
+          probableUtility: utility,
+          questionVoltage: voltage,
+        }),
       };
     }
 
-    const selected = acceptedRows[0];
-    const fallbackNotice = selected.state_match_mode === "CONCESSIONAIRE_FALLBACK"
-      ? ` Nao havia tabela validada especifica para ${state}; foi usada tabela validada da concessionaria ${selected.concessionaire ?? utility ?? "informada"}.`
+    const selected = rows[0];
+    const corporateNotice = selected.compatibility_status === "COMPATIBLE_BY_CORPORATE_GROUP"
+      ? " Norma corporativa Equatorial utilizada conforme tensao informada."
       : "";
     return {
       status: "FOUND",
-      reason: `Linha encontrada para ${loadLabel}, ${connectionType}, ${voltage}, ${state}.${fallbackNotice}`,
+      reason: `Linha encontrada para ${loadLabel}, ${connectionType}, ${voltage}, ${state}.${corporateNotice}`,
       missingContext: [],
       table: {
         id: selected.table_id,
@@ -206,12 +243,22 @@ export async function lookupServiceEntranceTable(
         concessionaire: selected.concessionaire,
         state: selected.state,
         voltage: selected.table_voltage,
+        scope: selected.scope,
+        utilityGroup: selected.utility_group,
+        applicableUfs: selected.applicable_ufs ?? [],
+        serviceType: selected.service_type,
+        compatibilityStatus: selected.compatibility_status,
         validationStatus: selected.asset_validation_status ?? selected.table_validation_status,
         imageStoragePath: selected.image_storage_path,
       },
       row: mapRow(selected),
-      candidateRows: acceptedRows.map(mapRow),
-      validationDebug: buildValidationDebug(acceptedRows, blockedRows),
+      candidateRows: rows.map(mapRow),
+      validationDebug: buildValidationDebug(rows, blockedRows, {
+        compatibilityStatus: selected.compatibility_status,
+        state,
+        probableUtility: utility,
+        questionVoltage: voltage,
+      }),
     };
   } catch (error) {
     return {
@@ -221,6 +268,7 @@ export async function lookupServiceEntranceTable(
       candidateRows: [],
       validationDebug: {
         finalUsedValidatedTable: false,
+        compatibilityStatus: "NO_VALIDATED_TABLE_FOUND",
         acceptedTables: [],
         blockedTables: [],
       },
@@ -235,7 +283,7 @@ async function queryRows(params: {
   state: string;
   utility: string | null;
   validationMode: "VALIDATED" | "BLOCKED";
-  allowStateFallback: boolean;
+  ignoreVoltage: boolean;
 }) {
   const validationFilter = params.validationMode === "VALIDATED"
     ? Prisma.sql`nt.validation_status = 'VALIDATED'`
@@ -252,16 +300,22 @@ async function queryRows(params: {
       nt.concessionaire,
       nt.state,
       nt.voltage as table_voltage,
-      na.validation_status::text as asset_validation_status,
-      nt.validation_status as table_validation_status,
-      na.image_storage_path,
+      nt.scope,
+      nt.utility_group,
+      nt.applicable_ufs,
+      nt.service_type,
       case
+        when nt.scope = 'CORPORATE_GROUP' and nt.utility_group = 'EQUATORIAL' then 'COMPATIBLE_BY_CORPORATE_GROUP'
         when (
           nt.state ilike ${`%${params.state}%`}
           or td.state_codes @> ARRAY[${params.state}]::text[]
-        ) then 'EXACT'
-        else 'CONCESSIONAIRE_FALLBACK'
-      end as state_match_mode,
+          or nt.applicable_ufs @> ARRAY[${params.state}]::text[]
+        ) then 'COMPATIBLE_BY_STATE'
+        else 'NO_VALIDATED_TABLE_FOUND'
+      end as compatibility_status,
+      na.validation_status::text as asset_validation_status,
+      nt.validation_status as table_validation_status,
+      na.image_storage_path,
       ntr.id as row_id,
       ntr.row_index,
       ntr.supply_type,
@@ -291,35 +345,35 @@ async function queryRows(params: {
       and dv.status <> 'ARCHIVED'::version_status
       and coalesce(na.is_active, true) = true
       and ${validationFilter}
-      and ntr.voltage = ${params.voltage}
+      and (${params.ignoreVoltage} = true or ntr.voltage = ${params.voltage})
       and ntr.supply_type = ${params.connectionType}
       and ${params.loadKw} >= coalesce(ntr.load_min_kw, -999999)
       and ${params.loadKw} <= ntr.load_max_kw
       and (
-        nt.state ilike ${`%${params.state}%`}
-        or td.state_codes @> ARRAY[${params.state}]::text[]
+        (
+          nt.scope = 'CORPORATE_GROUP'
+          and nt.utility_group = 'EQUATORIAL'
+          and ${params.utility}::text ilike '%Equatorial%'
+        )
         or (
-          ${params.allowStateFallback} = true
-          and ${params.utility}::text is not null
+          coalesce(nt.scope, 'STATE_SPECIFIC') = 'STATE_SPECIFIC'
           and (
-            nt.concessionaire ilike ${`%${params.utility ?? ""}%`}
-            or td.concessionaire ilike ${`%${params.utility ?? ""}%`}
-            or nt.concessionaire ilike '%EQUATORIAL%'
-            or td.concessionaire ilike '%EQUATORIAL%'
+            nt.state ilike ${`%${params.state}%`}
+            or td.state_codes @> ARRAY[${params.state}]::text[]
+            or nt.applicable_ufs @> ARRAY[${params.state}]::text[]
           )
         )
       )
       and (
         ${params.utility}::text is null
+        or nt.utility_group ilike ${`%${params.utility ?? ""}%`}
         or nt.concessionaire ilike ${`%${params.utility ?? ""}%`}
         or td.concessionaire ilike ${`%${params.utility ?? ""}%`}
       )
     order by
+      case when ntr.voltage = ${params.voltage} then 0 else 1 end,
       case
-        when (
-          nt.state ilike ${`%${params.state}%`}
-          or td.state_codes @> ARRAY[${params.state}]::text[]
-        ) then 0
+        when nt.scope = 'CORPORATE_GROUP' and nt.utility_group = 'EQUATORIAL' then 0
         else 1
       end,
       case when nt.validation_status = 'VALIDATED' then 0 else 1 end,
@@ -331,18 +385,39 @@ async function queryRows(params: {
 function buildValidationDebug(
   acceptedRows: ServiceEntranceLookupRow[],
   blockedRows: ServiceEntranceLookupRow[],
+  context: {
+    compatibilityStatus: TableCompatibilityStatus;
+    state?: string | null;
+    probableUtility?: string | null;
+    questionVoltage?: string | null;
+  },
 ): NonNullable<ServiceEntranceLookupResult["validationDebug"]> {
   return {
     finalUsedValidatedTable: acceptedRows.length > 0,
+    compatibilityStatus: context.compatibilityStatus,
+    state: context.state,
+    probableUtility: context.probableUtility,
+    questionVoltage: context.questionVoltage,
     acceptedTables: acceptedRows.map((row) =>
       mapCandidate(
         row,
-        row.state_match_mode === "CONCESSIONAIRE_FALLBACK"
-          ? "Tabela validada elegivel por fallback de concessionaria."
+        row.compatibility_status === "COMPATIBLE_BY_CORPORATE_GROUP"
+          ? "Tabela corporativa Equatorial compativel pela tensao informada."
           : "Tabela validada elegivel para resposta tecnica.",
+        undefined,
+        context.questionVoltage,
       ),
     ),
-    blockedTables: blockedRows.map((row) => mapCandidate(row, undefined, blockReasonForStatus(row.table_validation_status))),
+    blockedTables: blockedRows.map((row) =>
+      mapCandidate(
+        row,
+        undefined,
+        row.voltage !== context.questionVoltage
+          ? "tensao da tabela diferente da tensao informada"
+          : blockReasonForStatus(row.table_validation_status),
+        context.questionVoltage,
+      ),
+    ),
   };
 }
 
@@ -350,6 +425,7 @@ function mapCandidate(
   row: ServiceEntranceLookupRow,
   acceptReason?: string,
   blockReason?: string,
+  questionVoltage?: string | null,
 ): ServiceEntranceTableCandidate {
   return {
     tableId: row.table_id,
@@ -361,10 +437,15 @@ function mapCandidate(
     concessionaire: row.concessionaire,
     state: row.state,
     voltage: row.table_voltage,
+    scope: row.scope,
+    utilityGroup: row.utility_group,
+    applicableUfs: row.applicable_ufs ?? [],
+    serviceType: row.service_type,
+    questionVoltage,
+    compatibilityStatus: row.compatibility_status,
     tableValidationStatus: row.table_validation_status,
     assetValidationStatus: row.asset_validation_status,
     rowIndex: row.row_index,
-    stateMatchMode: row.state_match_mode,
     acceptReason,
     blockReason,
   };

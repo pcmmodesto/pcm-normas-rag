@@ -193,6 +193,7 @@ export async function POST(request: Request) {
             id, asset_id, document_version_id, document_id,
             table_number, title, page_number, concessionaire, state, voltage,
             category, validation_status, validated_at,
+            scope, utility_group, applicable_ufs, service_type, revision_label, source_document_title,
             applicable_voltage, applicable_supply_type, unit_basis, table_notes,
             source_text, created_at, updated_at
           )
@@ -210,6 +211,12 @@ export async function POST(request: Request) {
             ${body.category},
             ${body.validationStatus === "VALIDATED" ? "VALIDATED" : "PENDING"},
             ${body.validationStatus === "VALIDATED" ? new Date() : null},
+            ${isEquatorial(body.concessionaire) ? "CORPORATE_GROUP" : "STATE_SPECIFIC"},
+            ${isEquatorial(body.concessionaire) ? "EQUATORIAL" : null},
+            ${isEquatorial(body.concessionaire) ? ["PA", "MA"] : (body.stateCodes.length > 0 ? body.stateCodes : [])},
+            ${body.category},
+            ${null},
+            ${null},
             ${body.voltage || null},
             ${isDimensioningTable ? "DIMENSIONAMENTO" : null},
             ${body.method},
@@ -662,6 +669,10 @@ function splitCsv(value: string | null) {
 
 function splitTags(value: string | null) {
   return splitCsv(value).map((item) => item.toLowerCase());
+}
+
+function isEquatorial(value: string | null | undefined) {
+  return /equatorial|eqtl/i.test(value ?? "");
 }
 
 function splitLines(value: string | null) {

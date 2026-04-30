@@ -395,11 +395,11 @@ export function extractTechnicalEntities(question: string): TechnicalEntities {
   const kvaMatch = /(\d+(?:[,.]\d+)?)\s*kva/.exec(n);
   const voltageMatch = /(127\s*\/\s*220|220\s*\/\s*(?:380|308)|13[,.]8\s*kv|34[,.]5\s*kv|baixa tensao|media tensao)/.exec(n);
   const drawingMatch = /desenho\s+(\d+)/.exec(n);
-  const connectionType = /trifasico/.test(n)
+  const connectionType = /trif|tri[-\s]?fas/.test(n)
     ? "trifasico"
-    : /bifasico/.test(n)
+    : /bif|bi[-\s]?fas/.test(n)
       ? "bifasico"
-      : /monofasico/.test(n)
+      : /monof|mono[-\s]?fas/.test(n)
         ? "monofasico"
         : undefined;
 
@@ -407,7 +407,7 @@ export function extractTechnicalEntities(question: string): TechnicalEntities {
     city,
     state,
     probableConcessionaire,
-    voltage: normalizeExtractedVoltage(voltageMatch?.[1]) ?? inferDefaultVoltage(state),
+    voltage: normalizeExtractedVoltage(voltageMatch?.[1]),
     installedLoadKva: kvaMatch ? Number(kvaMatch[1].replace(",", ".")) : undefined,
     demand: /demanda/.test(n) ? "demanda" : undefined,
     hasKva: /\bkva\b/.test(n),
@@ -452,11 +452,6 @@ function normalizeExtractedVoltage(voltage: string | undefined) {
   const compact = voltage.replace(/\s/g, "");
   if (compact === "220/308") return "220/380";
   return compact;
-}
-
-function inferDefaultVoltage(state: string | undefined) {
-  if (state === "MA") return "220/380";
-  return undefined;
 }
 
 export function shouldUseServiceExpansion(question: string): boolean {

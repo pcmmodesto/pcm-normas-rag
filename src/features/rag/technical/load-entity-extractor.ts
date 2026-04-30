@@ -64,7 +64,7 @@ export function extractLoadEntities(question: string): LoadEntities {
   const normalized = normalizeTechnicalText(question);
   const equipments = extractEquipments(question);
   const location = extractLocation(normalized);
-  const voltage = extractVoltage(normalized) ?? inferDefaultVoltage(location.state);
+  const voltage = extractVoltage(normalized);
   const connectionType = extractConnectionType(normalized);
   const informedLoad = extractInformedLoad(normalized);
   const hasDimensioningRequest =
@@ -208,15 +208,10 @@ function extractVoltage(normalizedQuestion: string) {
   return undefined;
 }
 
-function inferDefaultVoltage(state: string | undefined) {
-  if (state === "MA") return "220/380";
-  return undefined;
-}
-
 function extractConnectionType(normalizedQuestion: string): LoadEntities["connectionType"] {
-  if (/trifasico|trifasica|tri[-\s]?fasico|tri[-\s]?fasica/.test(normalizedQuestion)) return "TRIFASICO";
-  if (/bifasico|bifasica|bi[-\s]?fasico|bi[-\s]?fasica/.test(normalizedQuestion)) return "BIFASICO";
-  if (/monofasico|monofasica|mono[-\s]?fasico|mono[-\s]?fasica/.test(normalizedQuestion)) return "MONOFASICO";
+  if (/trif|tri[-\s]?fas/.test(normalizedQuestion)) return "TRIFASICO";
+  if (/bif|bi[-\s]?fas/.test(normalizedQuestion)) return "BIFASICO";
+  if (/monof|mono[-\s]?fas/.test(normalizedQuestion)) return "MONOFASICO";
   return undefined;
 }
 

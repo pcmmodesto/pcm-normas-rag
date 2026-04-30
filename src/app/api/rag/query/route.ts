@@ -124,9 +124,7 @@ function detectTechnicalResponseMode(loadEntities: ReturnType<typeof extractLoad
   }
 
   if (loadEntities.hasEquipmentList) {
-    return loadEntities.missingContext.length === 0 && loadEntities.hasDimensioningRequest
-      ? "ENGINEERING_DIMENSIONING"
-      : "LOAD_ESTIMATION";
+    return loadEntities.hasDimensioningRequest ? "ENGINEERING_DIMENSIONING" : "LOAD_ESTIMATION";
   }
 
   return "STANDARD_RAG";
@@ -277,10 +275,11 @@ export async function POST(request: Request) {
   const passing = (requiresStrongSource ? mainPassing : passingAll).slice(0, 3);
 
   const isSufficient =
-    responseMode === "LOAD_ESTIMATION" ||
-    serviceEntranceLookup?.status === "FOUND" ||
-    structuredLookup.found ||
-    (passing.length > 0 && (!requiresStrongSource || hasStrongTechnicalSource));
+    responseMode === "ENGINEERING_DIMENSIONING"
+      ? serviceEntranceLookup?.status === "FOUND"
+      : responseMode === "LOAD_ESTIMATION" ||
+        structuredLookup.found ||
+        (passing.length > 0 && (!requiresStrongSource || hasStrongTechnicalSource));
   const effectiveMissingContext =
     responseMode !== "STANDARD_RAG"
       ? loadEntities.missingContext
@@ -382,6 +381,10 @@ export async function POST(request: Request) {
           selectedRow: serviceEntranceLookup.row,
           imageStoragePath: serviceEntranceLookup.table.imageStoragePath,
           validationStatus: serviceEntranceLookup.table.validationStatus,
+          scope: serviceEntranceLookup.table.scope,
+          utilityGroup: serviceEntranceLookup.table.utilityGroup,
+          applicableUfs: serviceEntranceLookup.table.applicableUfs,
+          compatibilityStatus: serviceEntranceLookup.table.compatibilityStatus,
         },
         score: 1000,
       }]

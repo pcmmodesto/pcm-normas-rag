@@ -434,6 +434,8 @@ function buildEngineeringDimensioningAnswer(
 
   const row = lookup.row;
   const table = lookup.table;
+  const usesCorporateEquatorial =
+    table.scope === "CORPORATE_GROUP" && table.utilityGroup === "EQUATORIAL";
 
   return {
     answerType: "DIRECT",
@@ -453,12 +455,19 @@ function buildEngineeringDimensioningAnswer(
         ? `Localidade: ${[loadEntities.city, loadEntities.state].filter(Boolean).join("/")}.`
         : "",
       table.concessionaire ? `Concessionaria: ${table.concessionaire}.` : "",
+      usesCorporateEquatorial
+        ? `Localidade informada: ${[loadEntities.city, loadEntities.state].filter(Boolean).join("/") || "-"}. Norma corporativa Equatorial utilizada conforme tensao ${row.voltage ?? table.voltage ?? "informada"}.`
+        : "",
       "",
       "Tabela normativa utilizada",
+      usesCorporateEquatorial
+        ? "Foi utilizada tabela normativa corporativa da Equatorial, selecionada pela tensao de fornecimento informada, e nao apenas pela UF."
+        : "",
       `Documento: ${table.documentTitle}.`,
       `Revisao: ${table.versionLabel}.`,
       `Concessionaria: ${table.concessionaire ?? "-"}.`,
       `UF: ${table.state ?? loadEntities.state ?? "-"}.`,
+      `Escopo: ${table.scope}${table.utilityGroup ? ` / ${table.utilityGroup}` : ""}.`,
       `Tabela: ${table.tableNumber ?? "-"}${table.title ? ` - ${table.title}` : ""}.`,
       `Pagina: ${table.pageNumber}.`,
       `Linha/faixa aplicada: ${formatServiceEntranceAppliedRange(row)}.`,

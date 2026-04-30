@@ -94,6 +94,9 @@ type StructuredLookup = {
 
 type ValidationDebug = {
   finalUsedValidatedTable?: boolean;
+  compatibilityStatus?: string;
+  probableUtility?: string | null;
+  questionVoltage?: string | null;
   acceptedTables?: Record<string, unknown>[];
   blockedTables?: Record<string, unknown>[];
 };
@@ -392,6 +395,12 @@ function LoadDebugPanel({
         <Row label="Ligacao" value={String(entities?.connectionType ?? "-")} />
         <Row label="Cidade" value={String(entities?.city ?? "-")} />
         <Row label="UF" value={String(entities?.state ?? "-")} />
+        <Row label="Concessionaria provavel" value={String(validationDebug?.probableUtility ?? "-")} />
+        <Row label="Tensao pergunta" value={String(validationDebug?.questionVoltage ?? entities?.voltage ?? "-")} />
+        <Row label="Tensao tabela" value={String(table?.voltage ?? row?.voltage ?? "-")} />
+        <Row label="Utility group" value={String(table?.utilityGroup ?? "-")} />
+        <Row label="Escopo tabela" value={String(table?.scope ?? "-")} />
+        <Row label="Compatibilidade" value={String(validationDebug?.compatibilityStatus ?? table?.compatibilityStatus ?? "-")} />
         <Row label="Concessionaria" value={String(table?.concessionaire ?? "-")} />
         <Row label="Lookup tabela" value={String(lookup?.status ?? "-")} />
         <Row label="Tabela candidata" value={String(table?.tableNumber ?? "-")} />

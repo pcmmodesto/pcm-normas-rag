@@ -797,6 +797,12 @@ model NormativeTable {
   state             String?
   voltage           String?
   category          String?
+  scope             String   @default("STATE_SPECIFIC")
+  utilityGroup      String?  @map("utility_group")
+  applicableUfs     String[] @default([]) @map("applicable_ufs")
+  serviceType       String?  @map("service_type")
+  revisionLabel     String?  @map("revision_label")
+  sourceDocumentTitle String? @map("source_document_title")
   validationStatus  String   @default("PENDING") @map("validation_status")
   validationNotes   String?  @map("validation_notes")
   validatedAt       DateTime? @map("validated_at")
@@ -818,6 +824,7 @@ model NormativeTable {
   @@index([assetId])
   @@index([tableNumber])
   @@index([state, voltage])
+  @@index([scope, utilityGroup])
   @@map("normative_tables")
 }
 

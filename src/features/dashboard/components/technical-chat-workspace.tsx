@@ -254,9 +254,7 @@ export function TechnicalChatWorkspace() {
             <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#123C7C]">
               Resposta
             </p>
-            <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-[#0F172A]">
-              {result.answer}
-            </pre>
+            <FormattedAnswer answer={result.answer} />
           </div>
 
           {/* Normative summary — only when found and not in main answer already */}
@@ -265,9 +263,7 @@ export function TechnicalChatWorkspace() {
               <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 O que a norma indica
               </p>
-              <pre className="whitespace-pre-wrap font-sans text-xs leading-relaxed text-slate-600">
-                {result.normativeSummary}
-              </pre>
+              <FormattedNormativeSummary summary={result.normativeSummary} />
             </div>
           )}
 
@@ -291,6 +287,223 @@ export function TechnicalChatWorkspace() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+type AnswerBlock =
+  | { type: "heading"; text: string }
+  | { type: "paragraph"; lines: string[] }
+  | { type: "table"; rows: string[][] }
+  | { type: "list"; items: string[] }
+  | { type: "facts"; rows: Array<{ label: string; value: string }> };
+
+const SECTION_TITLES = new Set([
+  "Dimensionamento preliminar conforme tabela normativa estruturada",
+  "Estimativa de carga instalada",
+  "Dados tecnicos considerados",
+  "Tabela normativa utilizada",
+  "Resultado do dimensionamento",
+  "Notas da tabela:",
+  "Premissas e alertas tecnicos",
+  "Dados faltantes para dimensionar cabo/disjuntor/padrao com seguranca:",
+  "Informe apenas os dados faltantes:",
+]);
+
+const FACT_PREFIXES = [
+  "Total estimado",
+  "kVA estimado",
+  "Tensao",
+  "Tipo de ligacao",
+  "Localidade",
+  "Concessionaria",
+  "UF",
+  "Escopo",
+  "Tabela",
+  "Pagina",
+  "Linha/faixa aplicada",
+  "Criterio de escolha",
+  "Disjuntor",
+  "Cabo de cobre multiplexado",
+  "Cabo de aluminio multiplexado duplex",
+  "Cabo de aluminio multiplexado triplex",
+  "Cabo de aluminio multiplexado quadruplex",
+  "Eletroduto",
+  "Condutor fase/neutro do cliente",
+  "Condutor de aterramento",
+  "Eletroduto de aterramento",
+  "Documento",
+  "Revisao",
+];
+
+function FormattedAnswer({ answer }: { answer: string }) {
+  const blocks = parseAnswer(answer);
+  return (
+    <div className="space-y-4 text-sm text-[#0F172A]">
+      {blocks.map((block, index) => (
+        <AnswerBlockView block={block} key={index} />
+      ))}
+    </div>
+  );
+}
+
+function AnswerBlockView({ block }: { block: AnswerBlock }) {
+  if (block.type === "heading") {
+    return (
+      <h3 className="border-b border-slate-100 pb-2 text-base font-semibold text-[#123C7C]">
+        {block.text}
+      </h3>
+    );
+  }
+
+  if (block.type === "table") {
+    const [header, ...rows] = block.rows;
+    return (
+      <div className="overflow-hidden rounded-xl border border-slate-200">
+        <table className="w-full text-left text-xs sm:text-sm">
+          {header && (
+            <thead className="bg-slate-50 text-slate-600">
+              <tr>
+                {header.map((cell, index) => (
+                  <th className="px-3 py-2 font-semibold" key={`${cell}-${index}`}>
+                    {cell}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+          )}
+          <tbody className="divide-y divide-slate-100 bg-white">
+            {rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {row.map((cell, cellIndex) => (
+                  <td className="px-3 py-2 align-top text-slate-700" key={`${cell}-${cellIndex}`}>
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  if (block.type === "facts") {
+    return (
+      <dl className="grid gap-2 sm:grid-cols-2">
+        {block.rows.map((row) => (
+          <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2" key={row.label}>
+            <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              {row.label}
+            </dt>
+            <dd className="mt-0.5 font-medium text-slate-900">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
+
+  if (block.type === "list") {
+    return (
+      <ul className="space-y-1.5 rounded-xl border border-slate-100 bg-slate-50 p-3">
+        {block.items.map((item, index) => (
+          <li className="flex gap-2 leading-relaxed text-slate-700" key={`${item}-${index}`}>
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#19A7E8]" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <div className="space-y-2 leading-relaxed text-slate-700">
+      {block.lines.map((line, index) => (
+        <p key={`${line}-${index}`}>{line}</p>
+      ))}
+    </div>
+  );
+}
+
+function parseAnswer(answer: string): AnswerBlock[] {
+  const lines = answer.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const blocks: AnswerBlock[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+
+    if (SECTION_TITLES.has(line)) {
+      blocks.push({ type: "heading", text: line.replace(/:$/, "") });
+      index++;
+      continue;
+    }
+
+    if (line.includes("|")) {
+      const rows: string[][] = [];
+      while (index < lines.length && lines[index].includes("|")) {
+        rows.push(lines[index].split("|").map((cell) => cell.trim()).filter(Boolean));
+        index++;
+      }
+      blocks.push({ type: "table", rows });
+      continue;
+    }
+
+    if (line.startsWith("- ")) {
+      const items: string[] = [];
+      while (index < lines.length && lines[index].startsWith("- ")) {
+        items.push(lines[index].replace(/^-+\s*/, ""));
+        index++;
+      }
+      blocks.push({ type: "list", items });
+      continue;
+    }
+
+    if (isFactLine(line)) {
+      const rows: Array<{ label: string; value: string }> = [];
+      while (index < lines.length && isFactLine(lines[index])) {
+        const [label, ...rest] = lines[index].split(":");
+        rows.push({ label: label.trim(), value: rest.join(":").trim().replace(/\.$/, "") });
+        index++;
+      }
+      blocks.push({ type: "facts", rows });
+      continue;
+    }
+
+    const paragraph: string[] = [];
+    while (
+      index < lines.length &&
+      !SECTION_TITLES.has(lines[index]) &&
+      !lines[index].includes("|") &&
+      !lines[index].startsWith("- ") &&
+      !isFactLine(lines[index])
+    ) {
+      paragraph.push(lines[index]);
+      index++;
+    }
+    blocks.push({ type: "paragraph", lines: paragraph });
+  }
+
+  return blocks;
+}
+
+function isFactLine(line: string) {
+  const [label, value] = line.split(":");
+  return Boolean(value?.trim()) && FACT_PREFIXES.includes(label.trim());
+}
+
+function FormattedNormativeSummary({ summary }: { summary: string }) {
+  const lines = summary.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return (
+    <div className="space-y-2 text-xs leading-relaxed text-slate-600">
+      {lines.map((line, index) => (
+        <p
+          className={index === 0 ? "font-semibold text-slate-700" : ""}
+          key={`${line}-${index}`}
+        >
+          {line}
+        </p>
+      ))}
     </div>
   );
 }
