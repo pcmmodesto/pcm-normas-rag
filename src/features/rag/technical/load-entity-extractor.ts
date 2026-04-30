@@ -130,7 +130,7 @@ function extractEquipments(question: string): ExtractedLoadEquipment[] {
       motorCv,
       assumption: true,
       notes: motorCv && /bomba|motor/.test(key)
-        ? `Potencia estimada por ${motorCv} cv: 1 cv = 736 W. Validar potencia eletrica nominal de placa.`
+        ? `Potencia de motor estimada por conversao de CV. Para dimensionamento definitivo, validar corrente nominal, rendimento e fator de potencia na placa do equipamento.`
         : effectiveProfile.notes,
     });
   }

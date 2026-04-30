@@ -78,6 +78,8 @@ export const EQUIPMENT_LOAD_CATALOG: EquipmentLoadProfile[] = [
     aliases: ["iluminacao", "ponto de luz", "pontos de luz", "lampada", "lampadas"],
     displayName: "Iluminacao / ponto de luz",
     defaultPowerW: 100,
+    notes:
+      "Potencia de iluminacao adotada por premissa do catalogo interno. Se forem lampadas LED, informar a potencia real para recalcular.",
   },
   {
     key: "tomada_uso_geral",

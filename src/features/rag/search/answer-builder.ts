@@ -436,6 +436,8 @@ function buildEngineeringDimensioningAnswer(
   const table = lookup.table;
   const usesCorporateEquatorial =
     table.scope === "CORPORATE_GROUP" && table.utilityGroup === "EQUATORIAL";
+  const queryLocation = [loadEntities.city, loadEntities.state].filter(Boolean).join("/") || "-";
+  const consideredVoltage = row.voltage ?? table.voltage ?? loadEntities.voltage ?? "-";
 
   return {
     answerType: "DIRECT",
@@ -449,24 +451,29 @@ function buildEngineeringDimensioningAnswer(
       ]),
       "",
       "Dados tecnicos considerados",
-      loadEntities.voltage ? `Tensao: ${loadEntities.voltage}.` : "",
-      loadEntities.connectionType ? `Tipo de ligacao: ${formatSupplyType(loadEntities.connectionType)}.` : "",
-      loadEntities.city || loadEntities.state
-        ? `Localidade: ${[loadEntities.city, loadEntities.state].filter(Boolean).join("/")}.`
-        : "",
-      table.concessionaire ? `Concessionaria: ${table.concessionaire}.` : "",
       usesCorporateEquatorial
-        ? `Localidade informada: ${[loadEntities.city, loadEntities.state].filter(Boolean).join("/") || "-"}. Norma corporativa Equatorial utilizada conforme tensao ${row.voltage ?? table.voltage ?? "informada"}.`
-        : "",
+        ? `Localidade da consulta: ${queryLocation}.`
+        : loadEntities.city || loadEntities.state
+          ? `Localidade: ${queryLocation}.`
+          : "",
+      usesCorporateEquatorial ? "Grupo normativo: Equatorial." : "",
+      usesCorporateEquatorial ? `Documento de origem cadastrado: ${table.state ?? "-"}.` : "",
+      usesCorporateEquatorial
+        ? "Aplicabilidade: Norma corporativa Equatorial selecionada pela tensao informada."
+        : table.concessionaire ? `Concessionaria: ${table.concessionaire}.` : "",
+      `Tensao considerada: ${consideredVoltage}.`,
+      loadEntities.connectionType ? `Tipo de ligacao: ${formatSupplyType(loadEntities.connectionType)}.` : "",
       "",
       "Tabela normativa utilizada",
       usesCorporateEquatorial
-        ? "Foi utilizada tabela normativa corporativa da Equatorial, selecionada pela tensao de fornecimento informada, e nao apenas pela UF."
+        ? "Esta tabela foi utilizada por escopo corporativo do Grupo Equatorial. A selecao tecnica foi feita pela tensao de fornecimento e pela faixa de carga, nao apenas pela UF."
         : "",
       `Documento: ${table.documentTitle}.`,
       `Revisao: ${table.versionLabel}.`,
       `Concessionaria: ${table.concessionaire ?? "-"}.`,
-      `UF: ${table.state ?? loadEntities.state ?? "-"}.`,
+      usesCorporateEquatorial
+        ? `UF do documento de origem: ${table.state ?? "-"}.`
+        : `UF: ${table.state ?? loadEntities.state ?? "-"}.`,
       `Escopo: ${table.scope}${table.utilityGroup ? ` / ${table.utilityGroup}` : ""}.`,
       `Tabela: ${table.tableNumber ?? "-"}${table.title ? ` - ${table.title}` : ""}.`,
       `Pagina: ${table.pageNumber}.`,

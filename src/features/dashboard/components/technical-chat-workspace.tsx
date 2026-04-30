@@ -18,6 +18,11 @@ type Source = {
   concessionaire: string | null;
   stateCodes: string[];
   documentType: string;
+  metadata?: {
+    scope?: string | null;
+    utilityGroup?: string | null;
+    [key: string]: unknown;
+  };
   score?: number;
   evidence?: Array<{
     signedUrl: string;
@@ -314,10 +319,16 @@ const FACT_PREFIXES = [
   "Total estimado",
   "kVA estimado",
   "Tensao",
+  "Tensao considerada",
   "Tipo de ligacao",
   "Localidade",
+  "Localidade da consulta",
   "Concessionaria",
+  "Grupo normativo",
+  "Documento de origem cadastrado",
+  "Aplicabilidade",
   "UF",
+  "UF do documento de origem",
   "Escopo",
   "Tabela",
   "Pagina",
@@ -539,7 +550,7 @@ function SourceCard({ source }: { source: Source }) {
         )}
         {source.stateCodes.length > 0 && (
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-            {source.stateCodes.join(", ")}
+            {isCorporateGroupSource(source) ? `Origem: ${source.stateCodes.join(", ")}` : source.stateCodes.join(", ")}
           </span>
         )}
       </div>
@@ -583,4 +594,8 @@ function SourceCard({ source }: { source: Source }) {
       </button>
     </div>
   );
+}
+
+function isCorporateGroupSource(source: Source) {
+  return source.metadata?.scope === "CORPORATE_GROUP";
 }
